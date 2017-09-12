@@ -1,0 +1,18 @@
+{
+  "snippet": {
+    "parentGroupId": "{parentGroupId}",
+    "processors": {},
+    "funnels": {},
+    "inputPorts": {},
+    "outputPorts": {},
+    "remoteProcessGroups": {},
+    "processGroups": {
+      "{processGroupId}": {
+        "clientId": "{clientId}",
+        "version": 1
+      }
+    },
+    "connections": {},
+    "labels": {}
+  }
+}

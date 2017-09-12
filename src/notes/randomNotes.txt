@@ -1,0 +1,27 @@
+
+
+My local root process group is probably 5cb229a2-015e-1000-af7e-47911f0b10d6
+
+curl notes:
+You can get a client-id like this:
+curl -i -H "Accept: */*"  -X GET   http://localhost:8080/nifi-api/flow/client-id
+
+
+Create a template as done in https://community.hortonworks.com/content/kbentry/87160/creating-nifi-template-via-rest-api.html
+
+Receive from client or assume we know the snippet.parentGroupId and snippet.processGroups.id (which is not associated with an id field, but is used as a processorGroups key)
+Get String result of this, which becomes the clientId
+curl -i -H "Accept: */*"  -X GET   http://localhost:8080/nifi-api/flow/client-id
+Do a String replace inside of akka-http-to-nifi/src/main/resources/nifi-templates/emptySnippet.json, where our variables will come from:
+    snippet.parentGroupId snippet.processGroups.id  clientId
+Send postSnippet(jsonString), which sends that String as Json to /nifi-api/snippets
+If that call succeeds, we'll have a JSON return. Get snippet.id from that return, call it snippetId
+Now make a post:
+json:
+{
+  "name": "My Template",
+  "description": "",
+  "snippetId": "${snippet.id}"
+}
+data: nifi-api/process-groups/snippet.parentGroupId/templates
+

@@ -1,0 +1,18 @@
+{
+  "snippet": {
+    "parentGroupId": "5cb229a2-015e-1000-af7e-47911f0b10d6",
+    "processors": {},
+    "funnels": {},
+    "inputPorts": {},
+    "outputPorts": {},
+    "remoteProcessGroups": {},
+    "processGroups": {
+      "7672dde2-015e-1000-6d83-b90563f36023": {
+        "clientId": "7673ecd0-015e-1000-701c-6a5fbda50288",
+        "version": 1
+      }
+    },
+    "connections": {},
+    "labels": {}
+  }
+}

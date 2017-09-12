@@ -17,7 +17,7 @@ import akka.util.ByteString
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import java.io.{StringReader, IOException}
-import org.apache.nifi.web.api.entity.{SnippetEntity, SearchResultsEntity}
+import org.apache.nifi.web.api.entity.{CreateTemplateRequestEntity, TemplateEntity, SnippetEntity, SearchResultsEntity}
 
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContextExecutor, Future}
@@ -78,11 +78,87 @@ trait NifiService {
 
   }
 
-  def postSnippet(str: String): Future[HttpResponse] = {
+  def handleBadStatus[T](resp: HttpResponse): Future[T] = {
+    Unmarshal(resp.entity).to[String].flatMap { bodyAsString =>
+      Future.failed(new RuntimeException(s"failed with status ${resp.status}. resp was $bodyAsString"))
+    }
+  }
+
+  def clientId: Future[String] = {
+    nifiApiRequest(RequestBuilding.Get(s"$apiPath/flow/client-id")).flatMap{resp: HttpResponse =>
+      resp.status match {
+        case OK =>
+          Unmarshal(resp.entity).to[String]
+        case x =>
+          handleBadStatus[String](resp)
+      }
+    }
+  }
+
+  //TODO  At some point may need a more performant or more standardized text replacement facility
+  def replaceText(text: String, replaceValues: Map[String, String]): String = {
+    //logger.info(s"map is $replaceValues")
+    val answer = replaceValues.foldLeft(text){ (text, keyAndValue) =>
+        keyAndValue match {
+          case (variable, theReplacement) =>
+            text.replaceAll(variable, theReplacement)
+        }
+
+    }
+
+    logger.info(s"!!!!!replaced text is $answer")
+    answer
+  }
+
+/*  def postSnippet(str: String): Future[HttpResponse] = {
     //import akka.http.scaladsl.model.HttpRequest
     //Note: I could also use def HttpEntity.apply(contentType: ContentType, data: ByteString)
     nifiApiRequest(akka.http.scaladsl.model.HttpRequest.apply(method = HttpMethods.POST, uri = s"$apiPath/snippets", entity = HttpEntity.apply(ContentTypes.`application/json`, str)))
+  }*/
+
+  //TODO Get rid of all the copy-paste
+  def postSnippet(str: String): Future[SnippetEntity] = {
+    nifiApiRequest(akka.http.scaladsl.model.HttpRequest.apply(method = HttpMethods.POST, uri = s"$apiPath/snippets", entity = HttpEntity.apply(ContentTypes.`application/json`, str))).flatMap{resp =>
+      resp.status match {
+        case OK | Created =>
+          Unmarshal(resp.entity).to[String].map{str =>
+            JaxBConverters.JsonConverters.fromJsonString[SnippetEntity](str)
+
+          }
+        case other => handleBadStatus[SnippetEntity](resp)
+
+      }
+    }
+
   }
+
+  def postTemplate(body: String, parentProcessGroupId: String): Future[TemplateEntity] = {
+
+    logger.info(s"in postTemplate, body is $body and parentProcessGroupId is $parentProcessGroupId")
+
+    nifiApiRequest(akka.http.scaladsl.model.HttpRequest.apply(method = HttpMethods.POST, uri = s"$apiPath/process-groups/$parentProcessGroupId/templates", entity = HttpEntity.apply(ContentTypes.`application/json`, body))).flatMap { resp =>
+      resp.status match {
+        case OK | Created =>
+          Unmarshal(resp.entity).to[String].map{str =>
+            println(s"entity for nifi-api template response is $str")
+            JaxBConverters.JsonConverters.fromJsonString[TemplateEntity](str)
+          }
+        case other => handleBadStatus[TemplateEntity](resp)
+
+      }
+    }
+
+  }
+
+  def makeCreateTemplateRequestEntity(name: String, description: String, snippetId: String): String = {
+    val ent = new CreateTemplateRequestEntity
+    ent.setName(name)
+    ent.setDescription(description)
+    ent.setSnippetId(snippetId)
+
+    JaxBConverters.JsonConverters.toJsonString(ent)
+  }
+
 
   //TODO Turns out we don't need these conversions from ResponseEntity to String. We can just use Unmarshal(responseEntity).to[String]
   //This also means we don't need our entityToStrictTimeout
@@ -91,6 +167,7 @@ trait NifiService {
   def s(futByteString: Future[ByteString]): Future[String] = futByteString.map(stringFromByteString)
 
   def pullStringFromEntity(entity: ResponseEntity)(implicit timeout: FiniteDuration): Future[String] = s( pullByteString(entity))
+
 
   val routes: Route = {
     logRequestResult("Nifi service") {
@@ -135,8 +212,12 @@ trait NifiService {
         path("postsnippet") { //curl --include --request POST -H Topic:thetopic -H 'Content-type: application/json'  --data '[{"key":"val", "keyxx":"valuex"}, {"keykey":"v", "keydddd":"dddd"}]'  -X  POST http://localhost:9000/postsnippet
                       //Remember to look at this example: https://community.hortonworks.com/content/kbentry/87160/creating-nifi-template-via-rest-api.html
           post {
-            val templateText = Misc.readText("src/main/resources/nifi-templates/simpleTemplate3.xml")
-            val templateFromXml: TemplateDTO = JaxBConverters.XmlConverters.fromXmlString[TemplateDTO](templateText)
+            //todo. Get these from posted entity
+            val assumedParentGroupId = "5cb229a2-015e-1000-af7e-47911f0b10d6"
+            val assumedProcessGroupId = "7672dde2-015e-1000-6d83-b90563f36023"
+
+            //val templateText = Misc.readText("src/main/resources/nifi-templates/simpleTemplate3.xml")
+            //val templateFromXml: TemplateDTO = JaxBConverters.XmlConverters.fromXmlString[TemplateDTO](templateText)
 
             //If we don't put our templateFromXml's snippet (which is a SnippetDTO, not a SnippetEntity) inside a SnippetEntity, we get this error message: [
             //com.sun.istack.SAXException2: unable to marshal type "org.apache.nifi.web.api.dto.FlowSnippetDTO" as an element because it is missing an @XmlRootElement annotation]
@@ -151,23 +232,32 @@ trait NifiService {
 
             //We're just settling for compilation here.  We know we need to send a SnippetEntity, not a TemplateDTO
             //We'll receive this error message: Message body is malformed. Unable to map into expected format.
-            val jsonString = JaxBConverters.JsonConverters.toJsonString(templateFromXml)
+            //val jsonString = JaxBConverters.JsonConverters.toJsonString(templateFromXml)
+            val jsonString = Misc.readText("src/main/resources/nifi-templates/emptySnippetReplacable.json")
 
-            logger.info(s"json string we're sending is $jsonString")
+
+            //logger.info(s"json string we're sending is $jsonString")
 
             complete {
-              postSnippet(jsonString).flatMap { resp: HttpResponse =>
-                //TODO send response based on status.
-                logger.info("snippet status is " + resp.status)
-                pullStringFromEntity(resp.entity)(entityToStrictTimeout).map { str =>
-                  //HEY! Maybe we should send xml instead of json!!!
-                  logger.info(s"string value of response to our snippet post attempt is: \n$str")
-                  val jsValue: JsValue = JsonParser(str)
-                  val stringKeysAndJsValuesMap: Map[String, spray.json.JsValue] = jsValue.asJsObject.fields
-                  logger.info(s"HO Ho HO return is ${stringKeysAndJsValuesMap}")
-                  OK -> stringKeysAndJsValuesMap
-                }
+              (for {
+                (cid, replacedJson) <- clientId.map(theClientId => (
+                  theClientId,
+                  replaceText(jsonString, Map("\\{parentGroupId\\}" -> assumedParentGroupId,
+                  "\\{processGroupId\\}" -> assumedProcessGroupId, "\\{clientId\\}" ->  theClientId  ))
+                  )
+                )
+                snippetEntity: SnippetEntity <- postSnippet(replacedJson).map{snippetEntity => logger.info(s"snippetEntity is $snippetEntity"); snippetEntity   }
+                templateEntity: TemplateEntity <-  postTemplate(
+                  makeCreateTemplateRequestEntity("theNewTemplateName", "some description", snippetEntity.getSnippet.getId),
+                  assumedParentGroupId
+                )
+              } yield (templateEntity)).map{templateEntity: TemplateEntity =>
+               OK -> JsonParser(
+                 s"""
+                   |{"templateId" : "${templateEntity.getTemplate.getId}"}
+                 """.stripMargin)
               }
+
             }
 
           }
