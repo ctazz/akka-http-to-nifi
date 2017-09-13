@@ -1,0 +1,17 @@
+ multipart/form-data
+
+I want to upload a file to nifi-api/process-groups/${parentProcessGroupId}/templates/upload using content-type multipart/form-data
+That means I'm looking for client examples, not server examples.
+
+
+https://github.com/akka/akka/issues/17665
+https://gist.github.com/jrudolph/08d0d28e1eddcd64dbd0
+http://doc.akka.io/docs/akka-http/10.0.8/scala/http/routing-dsl/directives/file-upload-directives/uploadedFile.html
+http://doc.akka.io/docs/akka-http/10.0.8/scala/http/routing-dsl/directives/file-upload-directives/fileUpload.html#fileupload
+
+//This might be the key, if I'm willing to not worry about loading a file in a streaming way
+http://doc.akka.io/docs/akka-http/10.0.10/scala/http/routing-dsl/directives/file-upload-directives/fileUpload.html
+
+
+General:
+https://stackoverflow.com/questions/4083702/posting-a-file-and-associated-data-to-a-restful-webservice-preferably-as-json

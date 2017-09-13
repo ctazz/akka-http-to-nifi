@@ -48,7 +48,19 @@ import spray.json._
 
 
 
-
+//Important Akka rest client note.
+//If we've made our http request and have not consumed the response entity, then we should discard the entity bytes, as in:
+//theFutureResponse.map{resp =>
+//  resp.discardEntityBytes()
+//}
+//Otherwise the Akka streams infrastructure will understand the lack of entity consumption as a back-pressure signal, and will
+//stop reading from the underlying TCP connection.
+//So don't just check the response status return and say Adios!
+//See http://doc.akka.io/docs/akka-http/current/scala/http/implications-of-streaming-http-entity.html
+//We don't have to call discardEntityBytes when we do consume the response entity, as, for example, when we do:
+//Unmarshal(resp.entity).to[String]
+//TODO Same goes for discarding request entities.  WE NEED to check if we've been reading request entities! (What happens on a Get, where
+//there shouldn't be a request entity?
 trait NifiService {
   implicit val system: ActorSystem
   implicit def executor: ExecutionContextExecutor
