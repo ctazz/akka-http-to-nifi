@@ -8,14 +8,15 @@ curl -i -H "Accept: */*"  -X GET   http://localhost:8080/nifi-api/flow/client-id
 
 
 Create a template as done in https://community.hortonworks.com/content/kbentry/87160/creating-nifi-template-via-rest-api.html
+(but not getting access token and not handling versioning)
 
-Receive from client or assume we know the snippet.parentGroupId and snippet.processGroups.id (which is not associated with an id field, but is used as a processorGroups key)
-Get String result of this, which becomes the clientId
+Receive from client or assume we know the snippet.parentGroupId and snippet.processGroups.id (which in our snippet-json is not associated with an id field, but is used as a processorGroups key)
+Get String result of the following, which becomes the clientId
 curl -i -H "Accept: */*"  -X GET   http://localhost:8080/nifi-api/flow/client-id
 Do a String replace inside of akka-http-to-nifi/src/main/resources/nifi-templates/emptySnippet.json, where our variables will come from:
     snippet.parentGroupId snippet.processGroups.id  clientId
 Send postSnippet(jsonString), which sends that String as Json to /nifi-api/snippets
-If that call succeeds, we'll have a JSON return. Get snippet.id from that return, call it snippetId
+If that call succeeds, we'll have a JSON return from NIFI. Get snippet.id from that return, call it snippetId
 Now make a post:
 json:
 {
@@ -24,4 +25,19 @@ json:
   "snippetId": "${snippet.id}"
 }
 data: nifi-api/process-groups/snippet.parentGroupId/templates
+
+
+The apparent easy way to create templates and send to NIFI doesn't work
+Would like to create template in NIFI gui, and put in some variables so that clients of our service can customize the template they chose
+Created a template, saved it, loaded it into our service and converted it to a TemplateDTO
+I've been trying to hit the NIFI POST /nifi-api/snippet endpoint, which requires a SnippetEntity.
+To create a SnippetEntity you need to supply a SnippetDTO.
+But the TemplateDTO owns a FlowSnippetDTO, not a SnippetDTO, and the two don't seem to have much in common.
+
+
+New idea:
+Maybe I need to use this POST if I want to upload or import a template, rather than going by https://community.hortonworks.com/content/kbentry/87160/creating-nifi-template-via-rest-api.html:
+/process-groups/{id}/templates/upload /process-groups/{id}/templates/import
+---->Overall, maybe I should do stuff in the NIFI GUI and use chrome to see what requests are being made
+That GUI should just be using the REST api that I want to use.
 

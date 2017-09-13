@@ -216,29 +216,10 @@ trait NifiService {
             val assumedParentGroupId = "5cb229a2-015e-1000-af7e-47911f0b10d6"
             val assumedProcessGroupId = "7672dde2-015e-1000-6d83-b90563f36023"
 
-            //val templateText = Misc.readText("src/main/resources/nifi-templates/simpleTemplate3.xml")
-            //val templateFromXml: TemplateDTO = JaxBConverters.XmlConverters.fromXmlString[TemplateDTO](templateText)
-
-            //If we don't put our templateFromXml's snippet (which is a SnippetDTO, not a SnippetEntity) inside a SnippetEntity, we get this error message: [
-            //com.sun.istack.SAXException2: unable to marshal type "org.apache.nifi.web.api.dto.FlowSnippetDTO" as an element because it is missing an @XmlRootElement annotation]
-            //But unfortunately, what we get from our template is a templateDTO, which owns a FlowSnippetDTO.
-            //And the NIFI POST /nifi-api/snippet endpoint requires a SnippetEntity, and SnippetEntity needs a SnippetDTO, not a FlowSnippetDTO!
-/*
-            val snippetEntity = new SnippetEntity
-            snippetEntity.setSnippet(templateFromXml.getSnippet)
-            //would like to do this, but the above line doesn't compile!
-            val jsonString = JaxBConverters.JsonConverters.toJsonString(snippetEntity)
-*/
-
-            //We're just settling for compilation here.  We know we need to send a SnippetEntity, not a TemplateDTO
-            //We'll receive this error message: Message body is malformed. Unable to map into expected format.
-            //val jsonString = JaxBConverters.JsonConverters.toJsonString(templateFromXml)
             val jsonString = Misc.readText("src/main/resources/nifi-templates/emptySnippetReplacable.json")
 
-
-            //logger.info(s"json string we're sending is $jsonString")
-
             complete {
+              //Doesn't handle versioning yet
               (for {
                 (cid, replacedJson) <- clientId.map(theClientId => (
                   theClientId,
@@ -246,7 +227,7 @@ trait NifiService {
                   "\\{processGroupId\\}" -> assumedProcessGroupId, "\\{clientId\\}" ->  theClientId  ))
                   )
                 )
-                snippetEntity: SnippetEntity <- postSnippet(replacedJson).map{snippetEntity => logger.info(s"snippetEntity is $snippetEntity"); snippetEntity   }
+                snippetEntity: SnippetEntity <- postSnippet(replacedJson)
                 templateEntity: TemplateEntity <-  postTemplate(
                   makeCreateTemplateRequestEntity("theNewTemplateName", "some description", snippetEntity.getSnippet.getId),
                   assumedParentGroupId
