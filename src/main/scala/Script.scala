@@ -92,6 +92,9 @@ object Script extends App {
     Uri(scheme = "http", authority = Uri.Authority(Uri.Host(config.getString("services.nifi-api.host")), port = config.getInt("services.nifi-api.port")), path = path)
   }
 
+  def createProcessGroupJson(parentGroupId: String, name: String): String = {
+    s"""{"revision":{"clientId":"$parentGroupId","version":0},"component":{"name":"$name","position":{"x":181,"y":140.5}}}"""
+  }
 
   val fut =
     for {
@@ -99,9 +102,14 @@ object Script extends App {
         nifiUri(Uri.Path(s"$apiPath/process-groups/${nifiRootProcessorGroupId}/templates/upload")),
         ourTemplateFile)
       xml: NodeSeq <-  templateUploadReq.withResp(Unmarshal(_).to[NodeSeq])
-      _ = println(s"template upload response is ${xml}")
+      templateId = (xml \ "template" \ "id").headOption.map{_.text.trim}.get
+      _ = println(s"template id is ${templateId} and  upload response is ${xml}")
       clientId <-   HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
         _ = println (s"clientId is $clientId")
+      xxx <- HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${nifiRootProcessorGroupId}/process-groups")),
+        entity = HttpEntity.apply(ContentTypes.`application/json`, createProcessGroupJson(nifiRootProcessorGroupId, "ourProcessGroup"))
+      ).withResp(Unmarshal(_).to[String])
+      _ = println(s"resonse for process group creation was $xxx")
     } yield (xml)
 
 
