@@ -36,7 +36,8 @@ object TestMultipartFileUpload extends App {
   import system.dispatcher
   implicit val materializer = ActorMaterializer()
 
-  val testFile = new File(args(0))
+  val testFile = new File("/Users/charlestassoni/Downloads/simpleTemplate4.xml")  //new File(args(0))
+  println(s"testFile is $testFile")
 
   def startTestServer(): Future[ServerBinding] = {
     import akka.http.scaladsl.server.Directives._
@@ -44,16 +45,21 @@ object TestMultipartFileUpload extends App {
     val route: Route =
       path("upload") {
         entity(as[Multipart.FormData]) { (formdata: Multipart.FormData) ⇒
-          val fileNamesFuture = formdata.parts.mapAsync(1) { p ⇒
-            println(s"Got part. name: ${p.name} filename: ${p.filename}")
+          val fileNamesFuture = formdata.parts.mapAsync(1) { part ⇒
+            println(s"Got part. name: ${part.name} filename: ${part.filename}")
+            println(s"part is $part")
 
             println("Counting size...")
             @volatile var lastReport = System.currentTimeMillis()
             @volatile var lastSize = 0L
+            @volatile var sb: StringBuilder = new StringBuilder("")
             def receiveChunk(counter: (Long, Long), chunk: ByteString): (Long, Long) = {
               val (oldSize, oldChunks) = counter
               val newSize = oldSize + chunk.size
               val newChunks = oldChunks + 1
+
+              sb.append(chunk.decodeString("UTF-8"))
+              //println(s"current chunk toString is \n${sb.toString}XXXX")
 
               val now = System.currentTimeMillis()
               if (now > lastReport + 1000) {
@@ -69,12 +75,12 @@ object TestMultipartFileUpload extends App {
               (newSize, newChunks)
             }
 
-            p.entity.dataBytes.runFold((0L, 0L))(receiveChunk).map {
+            part.entity.dataBytes.runFold((0L, 0L))(receiveChunk).map {
               case (size, numChunks) ⇒
                 println(s"Size is $size")
-                (p.name, p.filename, size)
+                (part.name, part.filename, size, "XXX" + sb.toString + "XXX")
             }
-          }.runFold(Seq.empty[(String, Option[String], Long)])(_ :+ _).map(_.mkString(", "))
+          }.runFold(Seq.empty[(String, Option[String], Long, String)])(_ :+ _).map(_.mkString(", "))
 
           complete {
             fileNamesFuture
@@ -84,14 +90,16 @@ object TestMultipartFileUpload extends App {
     Http().bindAndHandle(route, interface = "localhost", port = 0)
   }
 
+
   def createEntity(file: File): Future[RequestEntity] = {
     require(file.exists())
+    def httpEntity = HttpEntity(MediaTypes.`multipart/form-data` , file.length(), FileIO.fromPath(file.toPath, chunkSize = 10000)) // the chunk size here is currently critical for performance
     val formData =
       Multipart.FormData(
         Source.single(
           Multipart.FormData.BodyPart(
-            "test",
-            HttpEntity(MediaTypes.`application/octet-stream`, file.length(), FileIO.fromFile(file, chunkSize = 10)), // the chunk size here is currently critical for performance
+            "template",
+            httpEntity, // the chunk size here is currently critical for performance
             Map("filename" -> file.getName))))
     Marshal(formData).to[RequestEntity]
   }
@@ -107,7 +115,8 @@ object TestMultipartFileUpload extends App {
         ServerBinding(address) ← startTestServer()
         _ = println(s"Server up at $address")
         port = address.getPort
-        target = Uri(scheme = "http", authority = Uri.Authority(Uri.Host("localhost"), port = port), path = Uri.Path("/upload"))
+        target = Uri(scheme = "http", authority = Uri.Authority(Uri.Host("localhost"), port = 8080), path = Uri.Path("/nifi-api/process-groups/5cb229a2-015e-1000-af7e-47911f0b10d6/templates/upload"))
+        //target = Uri(scheme = "http", authority = Uri.Authority(Uri.Host("localhost"), port = port), path = Uri.Path("/upload"))
         req ← createRequest(target, testFile)
         _ = println(s"Running request, uploading test file of size ${testFile.length} bytes")
         response ← Http().singleRequest(req)

@@ -30,7 +30,7 @@ object Script extends App {
         Source.single(
           Multipart.FormData.BodyPart(
             "test",
-            HttpEntity(MediaTypes.`application/octet-stream`, file.length(), FileIO.fromFile(file, chunkSize = 100000)), // the chunk size here is currently critical for performance
+            HttpEntity(MediaTypes.`application/octet-stream`, file.length(), FileIO.fromPath(file.toPath, chunkSize = 100000)), // the chunk size here is currently critical for performance
             Map("filename" -> file.getName))))
     Marshal(formData).to[RequestEntity]
   }
