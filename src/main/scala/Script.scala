@@ -21,6 +21,10 @@ import akka.http.scaladsl.marshalling.Marshal
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
 
+import akka.http.scaladsl.marshallers.xml.ScalaXmlSupport._
+
+import scala.xml.NodeSeq
+
 object Script extends App {
 
   implicit val system = ActorSystem()
@@ -58,32 +62,57 @@ object Script extends App {
 
   }
 
+  object NifiResponseHelp {
+
+    def handleBadStatus[T](resp: HttpResponse): Future[T] = {
+      Unmarshal(resp.entity).to[String].flatMap { bodyAsString =>
+        Future.failed(new RuntimeException(s"failed with status ${resp.status}. Response body was $bodyAsString"))
+      }
+    }
+
+    def getIt[T](httpRequest: HttpRequest, acceptableStatus: Set[Int] = Set(200, 201))(f: HttpEntity => Future[T]): Future[T] = {
+      Http().singleRequest(httpRequest).flatMap { resp: HttpResponse =>
+        resp.status.intValue match {
+          case status if acceptableStatus.contains(status) => f(resp.entity)
+          case other => handleBadStatus[T](resp)
+        }
+
+      }
+    }
+  }
+
+  implicit class HttpRequestMonkeyPatch(val req: HttpRequest) extends AnyVal {
+    import NifiResponseHelp._
+    def withResp[T](f: HttpEntity => Future[T], acceptableStatus: Set[Int] = Set(200, 201)): Future[T] = {
+      getIt(req, acceptableStatus)(f)
+    }
+  }
+
   def nifiUri(path: Uri.Path): Uri = {
     Uri(scheme = "http", authority = Uri.Authority(Uri.Host(config.getString("services.nifi-api.host")), port = config.getInt("services.nifi-api.port")), path = path)
   }
 
-  //val xmlUploadTarget = Uri(scheme = "http", authority = Uri.Authority(Uri.Host(config.getString("services.nifi-api.host")), port = config.getInt("services.nifi-api.port")), path = Uri.Path(s"$apiPath/process-groups/${nifiRootProcessorGroupId}/templates/upload"))
-  //s"$apiPath/flow/client-id")
-
 
   val fut =
     for {
-      req <- TemplateUploadViaMultipart.createRequest(nifiUri(Uri.Path(s"$apiPath/process-groups/${nifiRootProcessorGroupId}/templates/upload")), ourTemplateFile)
-      response <- Http().singleRequest(req)
-      responseBodyAsString ← Unmarshal(response).to[String]
-      _ = println(s"template upload response is ${responseBodyAsString}")
-    } yield(responseBodyAsString)
+      templateUploadReq <- TemplateUploadViaMultipart.createRequest(
+        nifiUri(Uri.Path(s"$apiPath/process-groups/${nifiRootProcessorGroupId}/templates/upload")),
+        ourTemplateFile)
+      xml: NodeSeq <-  templateUploadReq.withResp(Unmarshal(_).to[NodeSeq])
+      _ = println(s"template upload response is ${xml}")
+      clientId <-   HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
+        _ = println (s"clientId is $clientId")
+    } yield (xml)
 
-  Thread.sleep(5000)
 
 
   await(fut)
   
   
-  def await[T](future: Future[T], dur: FiniteDuration = 300.millis): T =  Await.result(future, 300.millis)
+  def await[T](future: Future[T], dur: FiniteDuration = 300.millis): T =  Await.result(future, 2000.millis)
 
   println("hello")
-  //System.exit(0)
+  System.exit(0)
 
 
 

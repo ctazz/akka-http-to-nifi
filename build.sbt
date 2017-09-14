@@ -18,6 +18,7 @@ libraryDependencies ++= {
     "com.typesafe.akka" %% "akka-http" % akkaHttpV,
     "com.typesafe.akka" %% "akka-http-spray-json" % akkaHttpV,
     "com.typesafe.akka" %% "akka-http-testkit" % akkaHttpV,
+    "com.typesafe.akka" %% "akka-http-xml" % akkaHttpV,
     "com.sun.jersey" % "jersey-json" % "1.19.4",
     "io.spray" %%  "spray-json" % "1.3.3",
     "org.apache.nifi" % "nifi-client-dto" % "1.3.0",
