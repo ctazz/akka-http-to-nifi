@@ -41,13 +41,20 @@ object Script extends App {
   val nifiRootProcessorGroupId = args(0)
   println(s"nifiRootProcessorGroupId is $nifiRootProcessorGroupId")
   val ourTemplateFile = new File(args(1))
+  //TODO Get this from somewhere. It's the key-values for text replacement inside the chosen template
+  val replaceTemplateValues =  """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","listeningPort":"9010","allowedPaths":"/data"}"""
+
+
 
   val apiPath = config.getString("services.nifi-api.path")
+  val replace: (String, Map[String, String]) => String = Misc.replaceText("\\{\\{", "}}") _
 
   //TODO This would be re-usable if we passed in some values for the Multipar.FormData.BodyPart
   object TemplateUploadViaMultipart {
     def createEntity(file: File): Future[RequestEntity] = {
       require(file.exists())
+      //Looks like we're using this HttpEntity apply method:
+      //apply(contentType: ContentType, contentLength: Long, data: Source[ByteString, Any])
       def httpEntity = HttpEntity(MediaTypes.`multipart/form-data`, file.length(), FileIO.fromPath(file.toPath, chunkSize = 10000)) // the chunk size here is currently critical for performance
       val formData =
         Multipart.FormData(
@@ -59,9 +66,21 @@ object Script extends App {
       Marshal(formData).to[RequestEntity]
     }
 
+    def createEntityFromText(text: String, fileName: String): Future[RequestEntity] = {
+      println(s"doing createEntityFromText")
+      val formData =
+        Multipart.FormData(
+            Multipart.FormData.BodyPart.Strict(
+              "template",
+              HttpEntity(ContentTypes.`text/xml(UTF-8)`, text),
+              Map("filename" -> fileName))
+        )
+      Marshal(formData).to[RequestEntity]
+    }
+
     def createRequest(target: Uri, file: File): Future[HttpRequest] =
       for {
-        e ← createEntity(file)
+        e ← createEntityFromText( Misc.readText(file.getPath), file.getName)   //createEntity(file)
       } yield HttpRequest(HttpMethods.POST, uri = target, entity = e)
 
   }
@@ -139,10 +158,15 @@ object Script extends App {
 
   }
 
+  //TODO I'll need to read the template file, do replace on each line, and then send the text to the
+  //multipart/form-data code. For now I'll probably just read the big file, replace it all, then write the
+  //file to a temporary file, upload it, then delete the file.
+  //But at some point I could do text replace like using Framing (this article doesn't quite tod that, but it's a start: https://stackoverflow.com/questions/40224457/reading-a-csv-files-using-akka-streams)
+  //and I probably could send streaming text to the multipart/form-data code.  But that's for later.
   val fut =
     for {
       templateId <- uploadTemplate(nifiRootProcessorGroupId, ourTemplateFile)
-      clientId <-  findClientId
+      //clientId <-  findClientId  TODO: So far we haven't had to use clientId, though I though we would, and maybe we will need to at some point
       processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup")
       importTemplateResponse <- importTemplateIntoProcessGroup(processGroupEntity.getId, templateId)
     } yield (importTemplateResponse)
