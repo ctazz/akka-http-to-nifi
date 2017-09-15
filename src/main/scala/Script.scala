@@ -96,6 +96,7 @@ object Script extends App {
     Uri(scheme = "http", authority = Uri.Authority(Uri.Host(config.getString("services.nifi-api.host")), port = config.getInt("services.nifi-api.port")), path = path)
   }
 
+  //We provide a position here. Not sure we have to do that.
   def createProcessGroupJson(parentGroupId: String, name: String): String = {
     s"""{"revision":{"clientId":"$parentGroupId","version":0},"component":{"name":"$name","position":{"x":181,"y":140.5}}}"""
   }
@@ -118,22 +119,32 @@ object Script extends App {
 
   }
 
-  val fut =
+  def findClientId: Future[String] = {
+    HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
+  }
+
+  def uploadTemplate(parentProcessGroupId: String, templateFile: File): Future[String] = {
     for {
       templateUploadReq <- TemplateUploadViaMultipart.createRequest(
-        nifiUri(Uri.Path(s"$apiPath/process-groups/${nifiRootProcessorGroupId}/templates/upload")),
-        ourTemplateFile)
-      xml: NodeSeq <-  templateUploadReq.withResp(Unmarshal(_).to[NodeSeq])
-      templateId = (xml \ "template" \ "id").headOption.map{_.text.trim}.get
-      _ = println(s"template id is ${templateId} and  upload response is ${xml}")
-      clientId <-   HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
-        _ = println (s"clientId is $clientId")
-      processGroupEntity: ProcessGroupEntity <- HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${nifiRootProcessorGroupId}/process-groups")),
-        entity = HttpEntity.apply(ContentTypes.`application/json`, createProcessGroupJson(nifiRootProcessorGroupId, "ourProcessGroup"))
-      ).withResp(respEntity =>   Unmarshal(respEntity).to[String].map(JaxBConverters.JsonConverters.fromJsonString[ProcessGroupEntity]) )
-      _ = println(s"response for process group creation was ${processGroupEntity.getId}")
+        nifiUri(Uri.Path(s"$apiPath/process-groups/${parentProcessGroupId}/templates/upload")),
+        templateFile)
+      xml: NodeSeq <- templateUploadReq.withResp(Unmarshal(_).to[NodeSeq])
+    } yield (xml \ "template" \ "id").headOption.map{_.text.trim}.get
+  }
+
+  def createProcessGroup(parentProcessGroupId: String, processGroupName: String): Future[ProcessGroupEntity] = {
+    HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${parentProcessGroupId}/process-groups")),
+      entity = HttpEntity.apply(ContentTypes.`application/json`, createProcessGroupJson(parentProcessGroupId, processGroupName))
+    ).withResp(respEntity =>   Unmarshal(respEntity).to[String].map(JaxBConverters.JsonConverters.fromJsonString[ProcessGroupEntity]) )
+
+  }
+
+  val fut =
+    for {
+      templateId <- uploadTemplate(nifiRootProcessorGroupId, ourTemplateFile)
+      clientId <-  findClientId
+      processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup")
       importTemplateResponse <- importTemplateIntoProcessGroup(processGroupEntity.getId, templateId)
-      _ = println (s"import template response was is $importTemplateResponse")
     } yield (importTemplateResponse)
 
 
