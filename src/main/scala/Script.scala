@@ -14,6 +14,7 @@ import akka.stream.scaladsl._
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.client.RequestBuilding._
 import com.typesafe.config.ConfigFactory
+import org.apache.nifi.web.api.entity.ProcessGroupEntity
 import scala.concurrent.{Await, Future, ExecutionContextExecutor}
 import java.io.File
 import akka.http.scaladsl.marshalling.Marshal
@@ -25,6 +26,9 @@ import akka.http.scaladsl.marshallers.xml.ScalaXmlSupport._
 
 import scala.xml.NodeSeq
 
+//TODO we've arbitrarily specified component positions in some places.
+//With importTemplateIntoProcessGroupJson we had to, otherwise we'd get this error:400 Bad Request. Response body was The origin position (x, y) must be specified.
+//So what do we do about component positions?
 object Script extends App {
 
   implicit val system = ActorSystem()
@@ -96,6 +100,24 @@ object Script extends App {
     s"""{"revision":{"clientId":"$parentGroupId","version":0},"component":{"name":"$name","position":{"x":181,"y":140.5}}}"""
   }
 
+  //If we don't provide originX and originY, we see:
+  //400 Bad Request. Response body was The origin position (x, y) must be specified.
+  def importTemplateIntoProcessGroupJson(templateId: String): String = s"""{"templateId":"${templateId}","originX":385,"originY":170}"""
+
+  /**
+   *
+   * example:
+   * curl 'http://localhost:8080/nifi-api/process-groups/${processGroupId}/template-instance' \
+   * -H 'Content-Type: application/json' \
+   * --data '{"templateId":"${templateId}","originX":385,"originY":170}'
+   */
+  def importTemplateIntoProcessGroup(processGroupId: String, templateId: String): Future[String] = {
+    HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${processGroupId}/template-instance")),
+      entity = HttpEntity.apply(ContentTypes.`application/json`, importTemplateIntoProcessGroupJson(templateId))
+    ).withResp(Unmarshal(_).to[String] )
+
+  }
+
   val fut =
     for {
       templateUploadReq <- TemplateUploadViaMultipart.createRequest(
@@ -106,15 +128,17 @@ object Script extends App {
       _ = println(s"template id is ${templateId} and  upload response is ${xml}")
       clientId <-   HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
         _ = println (s"clientId is $clientId")
-      xxx <- HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${nifiRootProcessorGroupId}/process-groups")),
+      processGroupEntity: ProcessGroupEntity <- HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${nifiRootProcessorGroupId}/process-groups")),
         entity = HttpEntity.apply(ContentTypes.`application/json`, createProcessGroupJson(nifiRootProcessorGroupId, "ourProcessGroup"))
-      ).withResp(Unmarshal(_).to[String])
-      _ = println(s"resonse for process group creation was $xxx")
-    } yield (xml)
+      ).withResp(respEntity =>   Unmarshal(respEntity).to[String].map(JaxBConverters.JsonConverters.fromJsonString[ProcessGroupEntity]) )
+      _ = println(s"response for process group creation was ${processGroupEntity.getId}")
+      importTemplateResponse <- importTemplateIntoProcessGroup(processGroupEntity.getId, templateId)
+      _ = println (s"import template response was is $importTemplateResponse")
+    } yield (importTemplateResponse)
 
 
-
-  await(fut)
+  println("result was\n" +
+    await(fut))
   
   
   def await[T](future: Future[T], dur: FiniteDuration = 300.millis): T =  Await.result(future, 2000.millis)
