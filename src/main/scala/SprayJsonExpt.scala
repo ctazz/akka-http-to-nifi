@@ -13,6 +13,10 @@ import scala.concurrent.{Await, Future}
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
 
+//Note: Here we don't need to extend DefaultJsonProtocol because we import all the implicits from that Object with
+//import spray.json.DefaultJsonProtocol._
+//But sometimes extending a Protocols class that extends DefaultJsonProtocol and includes our app-specific case class implicits might be
+//a better way to organize
 object SprayJsonExpt extends App {
 
   val source = """{ "some": "JSON source" }"""
@@ -36,7 +40,8 @@ object SprayJsonExpt extends App {
   println(s"configMap is ${configMap}")
 
   import spray.json.JsObject
-  //@@@Pulling out inner data from a JsValue.
+
+  //@@@@@@@@@@Pulling out inner data from a JsValue.@@@@@@@@@@@@@@@@@@@@@@@@@@@@
   //1) We could use JsonParser and then pattern match on the inner object,
   val jsonString = """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","listeningPort":"9010","allowedPaths":"/data", "obj":{"x":7}}"""
   val complex: Map[String, JsValue] = JsonParser(jsonString).asJsObject.fields
@@ -70,11 +75,57 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
 127.0.0.1:9093,127.0.0.1:9094"""
 
   val simple_NoInnerObj = """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","listeningPort":"9010","allowedPaths":"/data"}"""
-  val futureReplaced = Unmarshal(simple_NoInnerObj).to[Map[String, String]].map{replace(textToReplace, _)   }
+  val futureReplaced: Future[String] = Unmarshal(simple_NoInnerObj).to[Map[String, String]].map{replace(textToReplace, _)   }
 
   //println("replaced is\n" + await(futureReplaced))
   assert(await(futureReplaced) == expected)
 
+
+  //@@@@@@@@@@More conversion, including using JsValue.convertTo@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+  case class Well(id: String, js: JsValue, inner: Inner)
+  case class Inner(name: String)
+
+  implicit val innerFormat = jsonFormat1(Inner.apply)
+  implicit val wellFormaat = jsonFormat3(Well.apply)
+
+  val wellText =
+    """{
+	"id":"theId",
+	"js": {
+		"hello":"goodbye"
+	},
+	"inner": {
+		"name":"George"
+	}
+}"""
+
+  //Our implicit formats allow us to convert from String to our Well case class using Unmarshal.
+  //And we can convert from JsValue to Map[String, String] using JsValue::convertTo
+  val wellObj: Well = await(Unmarshal(wellText).to[Well])
+  assert(wellObj.id == "theId")
+  assert(wellObj.inner == Inner("George"))
+  assert(wellObj.js.convertTo[Map[String, String]] == Map("hello" -> "goodbye"))
+
+  //Convert String to JsValue, then convert JsValue to Well case class.
+  //Note that the our implicit formats have allowed us to use JsValue::convertTo here.
+  await(Unmarshal(wellText).to[JsValue]).convertTo[Well]
+
+  //Cannot Unmarshall from JsValue to Case class. So we need to use converTo for that, as above, not Unmarshall
+  //Error was: could not find implicit value for parameter um: akka.http.scaladsl.unmarshalling.Unmarshaller[spray.json.JsValue,SprayJsonExpt.Well]
+/*  val fromStringToJsValue_ThenFromJsValueToCaseClass =  await(
+    Unmarshal(
+      await(Unmarshal(wellText).to[JsValue])
+    ).to[Well]
+  )*/
+
+
+  val replaceTemplateValues =  """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","listeningPort":"9010","allowedPaths":"/data"}"""
+
+  println("yo" +
+  await(
+  Unmarshal(replaceTemplateValues).to[JsValue].map(_.convertTo[Map[String, String]])
+  )
+  )
 
   def await[T](future: Future[T], dur: FiniteDuration = 300.millis): T =  Await.result(future, 2000.millis)
 

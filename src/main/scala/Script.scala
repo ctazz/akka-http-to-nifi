@@ -15,6 +15,7 @@ import akka.http.scaladsl.model._
 import akka.http.scaladsl.client.RequestBuilding._
 import com.typesafe.config.ConfigFactory
 import org.apache.nifi.web.api.entity.ProcessGroupEntity
+import spray.json.JsValue
 import scala.concurrent.{Await, Future, ExecutionContextExecutor}
 import java.io.File
 import akka.http.scaladsl.marshalling.Marshal
@@ -23,6 +24,7 @@ import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
 
 import akka.http.scaladsl.marshallers.xml.ScalaXmlSupport._
+import spray.json.DefaultJsonProtocol._
 
 import scala.xml.NodeSeq
 
@@ -43,8 +45,6 @@ object Script extends App {
   val ourTemplateFile = new File(args(1))
   //TODO Get this from somewhere. It's the key-values for text replacement inside the chosen template
   val replaceTemplateValues =  """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","listeningPort":"9010","allowedPaths":"/data"}"""
-
-
 
   val apiPath = config.getString("services.nifi-api.path")
   val replace: (String, Map[String, String]) => String = Misc.replaceText("\\{\\{", "}}") _
@@ -81,6 +81,11 @@ object Script extends App {
     def createRequest(target: Uri, file: File): Future[HttpRequest] =
       for {
         e ← createEntityFromText( Misc.readText(file.getPath), file.getName)   //createEntity(file)
+      } yield HttpRequest(HttpMethods.POST, uri = target, entity = e)
+
+    def createRequest(target: Uri, text: String, filename: String): Future[HttpRequest] =
+      for {
+        e ← createEntityFromText( text, filename)
       } yield HttpRequest(HttpMethods.POST, uri = target, entity = e)
 
   }
@@ -142,11 +147,11 @@ object Script extends App {
     HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
   }
 
-  def uploadTemplate(parentProcessGroupId: String, templateFile: File): Future[String] = {
+  def uploadTemplate(parentProcessGroupId: String, text: String, filename: String): Future[String] = {
     for {
       templateUploadReq <- TemplateUploadViaMultipart.createRequest(
         nifiUri(Uri.Path(s"$apiPath/process-groups/${parentProcessGroupId}/templates/upload")),
-        templateFile)
+        text, filename)
       xml: NodeSeq <- templateUploadReq.withResp(Unmarshal(_).to[NodeSeq])
     } yield (xml \ "template" \ "id").headOption.map{_.text.trim}.get
   }
@@ -165,7 +170,12 @@ object Script extends App {
   //and I probably could send streaming text to the multipart/form-data code.  But that's for later.
   val fut =
     for {
-      templateId <- uploadTemplate(nifiRootProcessorGroupId, ourTemplateFile)
+      replacedText <-  Unmarshal(replaceTemplateValues).to[JsValue].map(js =>
+        replace(Misc.readText(ourTemplateFile.getPath),
+        js.convertTo[Map[String, String]]
+      )
+      )
+      templateId <- uploadTemplate(nifiRootProcessorGroupId, replacedText, ourTemplateFile.getName)
       //clientId <-  findClientId  TODO: So far we haven't had to use clientId, though I though we would, and maybe we will need to at some point
       processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup")
       importTemplateResponse <- importTemplateIntoProcessGroup(processGroupEntity.getId, templateId)
