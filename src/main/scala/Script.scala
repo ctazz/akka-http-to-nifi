@@ -11,10 +11,15 @@ import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.{ActorMaterializer, Materializer}
 import akka.stream.scaladsl._
 
+import JsonHelp._
+
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.client.RequestBuilding._
 import com.typesafe.config.ConfigFactory
-import org.apache.nifi.web.api.entity.ProcessGroupEntity
+import org.apache.nifi.web.api.dto.flow.FlowDTO
+import org.apache.nifi.web.api.dto.status.ProcessorStatusDTO
+import org.apache.nifi.web.api.dto.{ProcessorDTO, ProcessorConfigDTO}
+import org.apache.nifi.web.api.entity.{ProcessorEntity, ProcessGroupFlowEntity, ProcessGroupEntity}
 import spray.json.JsValue
 import scala.concurrent.{Await, Future, ExecutionContextExecutor}
 import java.io.File
@@ -23,9 +28,12 @@ import akka.http.scaladsl.marshalling.Marshal
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
 
+import scala.collection.JavaConverters._
+
 import akka.http.scaladsl.marshallers.xml.ScalaXmlSupport._
 import spray.json.DefaultJsonProtocol._
 
+import scala.util.Try
 import scala.xml.NodeSeq
 
 //TODO we've arbitrarily specified component positions in some places.
@@ -136,15 +144,45 @@ object Script extends App {
    * -H 'Content-Type: application/json' \
    * --data '{"templateId":"${templateId}","originX":385,"originY":170}'
    */
-  def importTemplateIntoProcessGroup(processGroupId: String, templateId: String): Future[String] = {
+  def importTemplateIntoProcessGroup(processGroupId: String, templateId: String): Future[FlowDTO] = {
     HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${processGroupId}/template-instance")),
       entity = HttpEntity.apply(ContentTypes.`application/json`, importTemplateIntoProcessGroupJson(templateId))
-    ).withResp(Unmarshal(_).to[String] )
+    ).withResp(respEntity => Unmarshal(respEntity).to[String].map { str =>
+      println(s"importTemplateIntoProcessGroup response as String is $str")
+      JaxBConverters.JsonConverters.fromJsonString[FlowDTO](str)
+    }
+
+    )
+
+  }
+
+  //Same as above.  Unfortunately when converting to JaxB the config/properties end up empty, so we've been
+  //forced to work with JsValues instead.
+  def importTemplateIntoProcessGroupReturnsJsValue(processGroupId: String, templateId: String): Future[JsValue] = {
+    HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${processGroupId}/template-instance")),
+      entity = HttpEntity.apply(ContentTypes.`application/json`, importTemplateIntoProcessGroupJson(templateId))
+    ).withResp(respEntity => Unmarshal(respEntity).to[JsValue]  )
+
+  }
+
+  def importTemplateIntoProcessGroup3(processGroupId: String, templateId: String): Future[String] = {
+    HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${processGroupId}/template-instance")),
+      entity = HttpEntity.apply(ContentTypes.`application/json`, importTemplateIntoProcessGroupJson(templateId))
+    ).withResp(respEntity => Unmarshal(respEntity).to[String]  )
 
   }
 
   def findClientId: Future[String] = {
     HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
+  }
+
+  //TODO: at some point we could do text replace by using Framing (this article doesn't quite do that, but it's a start: https://stackoverflow.com/questions/40224457/reading-a-csv-files-using-akka-streams)
+  //and we probably could send streaming text to the multipart/form-data code.  But that's for later.
+  def replacement(templateFile: File,  replaceTemplateValues: String): Future[String] = {
+    val r: Map[String, String] => String = replace(Misc.readText(ourTemplateFile.getPath), _)
+    for {
+      jsVal <- Unmarshal(replaceTemplateValues).to[JsValue]
+    } yield r(jsVal.convertTo[Map[String, String]])
   }
 
   def uploadTemplate(parentProcessGroupId: String, text: String, filename: String): Future[String] = {
@@ -163,23 +201,30 @@ object Script extends App {
 
   }
 
-  //TODO I'll need to read the template file, do replace on each line, and then send the text to the
-  //multipart/form-data code. For now I'll probably just read the big file, replace it all, then write the
-  //file to a temporary file, upload it, then delete the file.
-  //But at some point I could do text replace like using Framing (this article doesn't quite tod that, but it's a start: https://stackoverflow.com/questions/40224457/reading-a-csv-files-using-akka-streams)
-  //and I probably could send streaming text to the multipart/form-data code.  But that's for later.
+  def findIdsOfHttpContextMaps(theBigJsValue: JsValue): Try[Set[String]] = {
+    val tryOfVector: Try[Vector[Map[String, JsValue]]] = deep(theBigJsValue, List("flow", "processors")).flatMap{processorsValue: JsValue =>
+      jsArrayToVector(processorsValue).flatMap{vec: Vector[JsValue] =>
+        Misc.sequence(vec.map(processorJsValue => deep(processorJsValue, List("component", "config", "properties")).flatMap(asMap)  ))
+      }
+    }
+
+    tryOfVector.map{vec =>
+      vec.map(_.get("HTTP Context Map")).collect{ case Some(jsValue) => jsValue   }
+    }.flatMap{jsValueIds =>
+      Misc.sequence(jsValueIds.map(asString)).map(_.to[Set])
+    }
+  }
+
+
   val fut =
     for {
-      replacedText <-  Unmarshal(replaceTemplateValues).to[JsValue].map(js =>
-        replace(Misc.readText(ourTemplateFile.getPath),
-        js.convertTo[Map[String, String]]
-      )
-      )
+      replacedText <-  replacement(ourTemplateFile, replaceTemplateValues)
       templateId <- uploadTemplate(nifiRootProcessorGroupId, replacedText, ourTemplateFile.getName)
-      //clientId <-  findClientId  TODO: So far we haven't had to use clientId, though I though we would, and maybe we will need to at some point
+      //clientId <-  findClientId  TODO: So far we haven't had to use clientId, though I thought we would, and maybe we will need to at some point
       processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup")
-      importTemplateResponse <- importTemplateIntoProcessGroup(processGroupEntity.getId, templateId)
-    } yield (importTemplateResponse)
+      jsValueForTemplateImport <- importTemplateIntoProcessGroupReturnsJsValue(processGroupEntity.getId, templateId)
+      ids = findIdsOfHttpContextMaps(jsValueForTemplateImport)
+    } yield (ids)
 
 
   println("result was\n" +

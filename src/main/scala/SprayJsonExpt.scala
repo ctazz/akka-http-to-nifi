@@ -12,6 +12,7 @@ import spray.json._
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
+import scala.util.{Failure, Success, Try}
 
 //Note: Here we don't need to extend DefaultJsonProtocol because we import all the implicits from that Object with
 //import spray.json.DefaultJsonProtocol._
@@ -127,6 +128,61 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
   )
   )
 
+
+  import JsonHelp._
+
+  //Read a ProcessGroupFlowEntity
+  val text = Misc.readText("notes/jsonDumps/another3.json")
+  val theBigJsValue: JsValue = await(Unmarshal(text).to[JsValue])
+
+  val components: Vector[JsValue] =  deep(theBigJsValue, List("flow", "processors")) match {
+
+    case Success(JsObject(fields)) => throw new RuntimeException(s"got fields $fields")
+
+    case Success(JsArray(vectorOfProcessors)) =>
+      vectorOfProcessors.map(_.asJsObject.fields.get("component").get)
+
+    case Failure(ex) =>  println("match was failure!!!"); throw new RuntimeException(ex)
+  }
+
+  val vecOfProperties: Vector[JsValue] = components.map(_.asJsObject.fields.get("config").get.asJsObject.fields.get("properties").get)
+  val ids = vecOfProperties.map(_.asJsObject.fields.get("HTTP Context Map")).collect{ case Some(jsValue) => jsValue   }
+
+  println(s"ids are $ids")
+  //ids are Vector("b1fe614b-cfc6-3db4-9715-aefe5280e445", "b1fe614b-cfc6-3db4-9715-aefe5280e445", "b1fe614b-cfc6-3db4-9715-aefe5280e445")
+  //ids are Vector("b1fe614b-cfc6-3db4-d73b-285af3c41771", "b1fe614b-cfc6-3db4-d73b-285af3c41771", "b1fe614b-cfc6-3db4-d73b-285af3c41771")
+
+
+/*  val howAboutThis = for {
+    processors <- deep(theBigJsValue, List("flow", "processors"))
+    vec: Vector[JsValue] <- jsArrayToVector(processors)
+    propertiesMaps: Vector[JsValue] = sequence(vec.map(processorJsValue => deep(processorJsValue, List("component", "config", "properties"))  ))
+  } yield propertiesMaps
+
+  println(s"how about this $howAboutThis")
+
+  */
+
+  import Misc._
+
+  val tryOfVector: Try[Vector[Map[String, JsValue]]] = deep(theBigJsValue, List("flow", "processors")).flatMap{processorsValue: JsValue =>
+    jsArrayToVector(processorsValue).flatMap{vec: Vector[JsValue] =>
+      sequence(vec.map(processorJsValue => deep(processorJsValue, List("component", "config", "properties")).flatMap(asMap)  ))
+    }
+  }
+
+  val httpContextMapIds: Try[Set[String]] = tryOfVector.map{vec =>
+    vec.map(_.get("HTTP Context Map")).collect{ case Some(jsValue) => jsValue   }
+  }.flatMap{jsValueIds =>
+      sequence(jsValueIds.map(asString)).map(_.to[Set])
+  }
+
+  println(s"httpContextMapIds is $httpContextMapIds")
+
+
+
+
+
   def await[T](future: Future[T], dur: FiniteDuration = 300.millis): T =  Await.result(future, 2000.millis)
 
 
@@ -153,6 +209,8 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
   assert(
   "xx".replaceAll("xx", "yay") == "yay"
   )
+
+  System.exit(0)
 
 
 

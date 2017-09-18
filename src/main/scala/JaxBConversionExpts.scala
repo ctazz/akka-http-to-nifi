@@ -6,6 +6,8 @@ import javax.xml.bind.Marshaller
 import javax.xml.bind.Unmarshaller
 
 
+import org.apache.nifi.web.api.dto.flow.FlowDTO
+import org.apache.nifi.web.api.dto.status.ProcessorStatusDTO
 
 import scala.reflect.ClassTag
 
@@ -77,5 +79,58 @@ object JaxBConversionExpts  extends  App {
   println(
   JaxBConverters.JsonConverters.toJsonString(templateFromXml)
   )
+
+
+  import scala.collection.JavaConverters._
+
+  def fromFlowDTO(flowDTO: FlowDTO): Set[Option[String]] = {
+    flowDTO.getProcessors.asScala.map{proc:ProcessorEntity =>
+      val status:ProcessorStatusDTO = proc.getStatus
+      val processorDTO: ProcessorDTO = proc.getComponent
+      processorDTO
+    }.map{processorDTO: ProcessorDTO =>
+      val validationErrors: Iterable[String] = processorDTO.getValidationErrors.asScala
+      val state = processorDTO.getState
+      println(s"state is $state and validationErrors are $validationErrors")
+      processorDTO.getConfig
+    }.map{processorConfigDTO: ProcessorConfigDTO =>
+      //key we want is "HTTP Context Map"
+      //!!!Problem when processing notes/jsonDumps/responseUponImportingTemplateIntoAProcessGroup.json is
+      //that, although properties appear when we parse with https://jsonformatter.curiousconcept.com/, the properties
+      //Map here is empty, as are any complex object. Simple attributes of ProcessorConfigDTO, such as schedulingPeriod, are
+      //deserialized correctly.
+      println(s"properties are ${processorConfigDTO.getProperties}")
+      processorConfigDTO.getProperties.asScala.get("HTTP Context Map")
+    }.to[Set]
+  }
+
+  def distinctPropertiesForPropertyName(flowDTO: FlowDTO, propertyName: String): Set[String] = {
+    flowDTO.getProcessors.asScala.map(_.getComponent.getConfig.getProperties.asScala.get("propertyName")).to[Set].collect{case Some(x) => x}
+  }
+
+
+
+  //@@@@@Finding Http Context Maps inside JSON responses
+  //Unfortunately, the processors / component / config / properties Map in each of these shows up as a 0 element Map, and
+  //until that bug is fixed, we can't use the JaxB representations to find Http Context Maps.
+
+  //1)This looks for Http Context Map ids in the json response for a GET /flow/process-groups/{id}
+  val pgfe: ProcessGroupFlowEntity =
+    JaxBConverters.JsonConverters.fromJsonString[ProcessGroupFlowEntity](
+      Misc.readText("notes/jsonDumps/fromFlowSlashprocess-groupsSlashId.json")
+    )
+  pgfe.getProcessGroupFlow.getFlow.getProcessGroups.asScala
+  val httpContextMapIds: Set[Option[String]] = fromFlowDTO(pgfe.getProcessGroupFlow.getFlow)
+
+  println("ids of HTTP Context Maps: " + httpContextMapIds)
+
+  //2) This looks for Http Context Map ids in the json response from a
+  //POST process-groups/${processGroupId}/template-instance (The purpose of such a post is to import a template into a process group)
+  //The difference between this JSON and that from GET /flow/process-groups/{id} is that this JSON doesn't have the enclosing
+  //processGroupFlow / flow layers, and also doesn't show permissions at the outer layer.
+  val flowEntity = JaxBConverters.JsonConverters.fromJsonString[FlowEntity]  (Misc.readText("notes/jsonDumps/another.json"))
+  val anotherTry = fromFlowDTO(flowEntity.getFlow)
+  println(s"another try gives $anotherTry)")
+
 
 }
