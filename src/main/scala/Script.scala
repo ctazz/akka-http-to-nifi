@@ -129,6 +129,7 @@ object Script extends App {
   }
 
   //We provide a position here. Not sure we have to do that.
+  //TODO  parentGroupId vs. clientId. What's going on here?
   def createProcessGroupJson(parentGroupId: String, name: String): String = {
     s"""{"revision":{"clientId":"$parentGroupId","version":0},"component":{"name":"$name","position":{"x":181,"y":140.5}}}"""
   }
@@ -165,13 +166,6 @@ object Script extends App {
 
   }
 
-  def importTemplateIntoProcessGroup3(processGroupId: String, templateId: String): Future[String] = {
-    HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${processGroupId}/template-instance")),
-      entity = HttpEntity.apply(ContentTypes.`application/json`, importTemplateIntoProcessGroupJson(templateId))
-    ).withResp(respEntity => Unmarshal(respEntity).to[String]  )
-
-  }
-
   def findClientId: Future[String] = {
     HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
   }
@@ -201,6 +195,19 @@ object Script extends App {
 
   }
 
+  //TODO Get from case class or from JaxB.
+  def componentStateUpdateJson(componentId: String, state: String, clientId: String): String = {
+    s"""{"revision":{"clientId":"$clientId","version":0},"component":{"id":"$componentId","state":"$state"}}"""
+  }
+
+  def updateStateOfHttpContextMap(httpContextMapId: String, state: String, clientId: String): Future[String] = {
+    HttpRequest(HttpMethods.PUT, uri = nifiUri(Uri.Path(s"$apiPath/controller-services/${httpContextMapId}")),
+      entity = HttpEntity.apply(ContentTypes.`application/json`, componentStateUpdateJson(httpContextMapId, state, clientId))
+    ).withResp(respEntity =>   Unmarshal(respEntity).to[String] )
+
+  }  
+  
+
   def findIdsOfHttpContextMaps(theBigJsValue: JsValue): Try[Set[String]] = {
     val tryOfVector: Try[Vector[Map[String, JsValue]]] = deep(theBigJsValue, List("flow", "processors")).flatMap{processorsValue: JsValue =>
       jsArrayToVector(processorsValue).flatMap{vec: Vector[JsValue] =>
@@ -220,11 +227,13 @@ object Script extends App {
     for {
       replacedText <-  replacement(ourTemplateFile, replaceTemplateValues)
       templateId <- uploadTemplate(nifiRootProcessorGroupId, replacedText, ourTemplateFile.getName)
-      //clientId <-  findClientId  TODO: So far we haven't had to use clientId, though I thought we would, and maybe we will need to at some point
+      clientId <-  findClientId
       processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup")
       jsValueForTemplateImport <- importTemplateIntoProcessGroupReturnsJsValue(processGroupEntity.getId, templateId)
-      ids = findIdsOfHttpContextMaps(jsValueForTemplateImport)
-    } yield (ids)
+      ids = findIdsOfHttpContextMaps(jsValueForTemplateImport).get //TODO Handle Try inside a function
+      res <- Future.sequence(ids.map(id => updateStateOfHttpContextMap(id, "ENABLED", clientId)))
+
+    } yield (res)
 
 
   println("result was\n" +

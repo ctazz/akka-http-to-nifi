@@ -149,19 +149,8 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
   val ids = vecOfProperties.map(_.asJsObject.fields.get("HTTP Context Map")).collect{ case Some(jsValue) => jsValue   }
 
   println(s"ids are $ids")
-  //ids are Vector("b1fe614b-cfc6-3db4-9715-aefe5280e445", "b1fe614b-cfc6-3db4-9715-aefe5280e445", "b1fe614b-cfc6-3db4-9715-aefe5280e445")
-  //ids are Vector("b1fe614b-cfc6-3db4-d73b-285af3c41771", "b1fe614b-cfc6-3db4-d73b-285af3c41771", "b1fe614b-cfc6-3db4-d73b-285af3c41771")
 
-
-/*  val howAboutThis = for {
-    processors <- deep(theBigJsValue, List("flow", "processors"))
-    vec: Vector[JsValue] <- jsArrayToVector(processors)
-    propertiesMaps: Vector[JsValue] = sequence(vec.map(processorJsValue => deep(processorJsValue, List("component", "config", "properties"))  ))
-  } yield propertiesMaps
-
-  println(s"how about this $howAboutThis")
-
-  */
+  //Now let's do the above in a tigher way
 
   import Misc._
 
