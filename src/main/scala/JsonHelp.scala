@@ -17,7 +17,9 @@ object JsonHelp {
           case None => Failure(new JsonReadError(s"key $head is empty"))
         }
 
-        case JsNull => Failure(JsonReadError(s"key $head is null"))
+        case JsNull =>
+          val msg = prevKey.map(k => s"jsValue associated with key '$k is JsNull").getOrElse("initial parent object is JsNull")
+          Failure(JsonReadError(msg))
 
         case other =>
           val msg = prevKey.map { k => s"jsValue associated with key '$k' is not a JsObject. Instead it is a ${other.getClass}" }.getOrElse {

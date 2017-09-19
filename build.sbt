@@ -26,7 +26,7 @@ libraryDependencies ++= {
   )
 }
 
-Keys.mainClass in (Compile) := Some("ExptService")
+Keys.mainClass in (Compile) := Some("Script")
 //To run original example code change the above line to: Keys.mainClass in (Compile) := Some("AkkaHttpMicroservice")
 
 //These depend on having addSbtPlugin("io.spray" % "sbt-revolver" % "0.8.0") in plugins.sbt
