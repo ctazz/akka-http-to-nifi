@@ -1,13 +1,12 @@
 
 import akka.actor.ActorSystem
-import akka.event.NoLogging
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import akka.http.scaladsl.model.ContentTypes._
 import akka.http.scaladsl.model.{ContentTypes, Multipart, HttpResponse, HttpRequest}
 import akka.http.scaladsl.model.StatusCodes._
-import akka.http.scaladsl.testkit.ScalatestRouteTest
 import akka.http.scaladsl.unmarshalling.Unmarshal
+import akka.event.{LoggingAdapter, Logging}
 import akka.stream.{ActorMaterializer, Materializer}
 import akka.stream.scaladsl._
 
@@ -44,12 +43,13 @@ object Script extends App {
   implicit val system = ActorSystem()
   implicit val executor = system.dispatcher
   implicit val materializer = ActorMaterializer()
+  val logger: LoggingAdapter = Logging(system, getClass)
 
   lazy val config = ConfigFactory.load()
 
   //The value for my local nifi instance si 5cb229a2-015e-1000-af7e-47911f0b10d6
   val nifiRootProcessorGroupId = args(0)
-  println(s"nifiRootProcessorGroupId is $nifiRootProcessorGroupId")
+  logger.info(s"nifiRootProcessorGroupId is $nifiRootProcessorGroupId")
   val ourTemplateFile = new File(args(1))
   //TODO Get this from somewhere. It's the key-values for text replacement inside the chosen template
   val replaceTemplateValues =  """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","listeningPort":"9010","allowedPaths":"/data"}"""
@@ -75,7 +75,6 @@ object Script extends App {
     }
 
     def createEntityFromText(text: String, fileName: String): Future[RequestEntity] = {
-      println(s"doing createEntityFromText")
       val formData =
         Multipart.FormData(
             Multipart.FormData.BodyPart.Strict(
@@ -148,7 +147,6 @@ object Script extends App {
     HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${processGroupId}/template-instance")),
       entity = HttpEntity.apply(ContentTypes.`application/json`, importTemplateIntoProcessGroupJson(templateId))
     ).withResp(respEntity => Unmarshal(respEntity).to[String].map { str =>
-      println(s"importTemplateIntoProcessGroup response as String is $str")
       JaxBConverters.JsonConverters.fromJsonString[FlowDTO](str)
     }
 
@@ -206,10 +204,30 @@ object Script extends App {
 
   }
 
-  def updateStateOfProcessor(componentId: String, state: String, clientId: String): Future[String] = {
+  def updateStateOfProcessor(componentId: String, state: String, clientId: String): Future[Unit] = {
     HttpRequest(HttpMethods.PUT, uri = nifiUri(Uri.Path(s"$apiPath/processors/${componentId}")),
       entity = HttpEntity.apply(ContentTypes.`application/json`, componentStateUpdateJson(componentId, state, clientId))
-    ).withResp(respEntity =>   Unmarshal(respEntity).to[String] )
+    ).withResp(_ => Future.successful(()) )
+
+  }
+
+  import CollectionHelp._
+  def updateProcessorsStates(componentsWeNeedToRun: Vector[ComponentInfo], desiredState: String, clientId: String, successMsg: String, failureMessage: String): Future[Unit] = {
+    Future.sequence(componentsWeNeedToRun.map(processor =>
+      updateStateOfProcessor(processor.id, desiredState, clientId).map(_ => Right(processor.id) ).recover{
+        case ex => Left(processor.id -> ex)
+      }
+
+    )).map{vec: Vector[Either[(String, Throwable), String]] => Either.sequence(vec)   }.flatMap(_ match {
+      case Right(vec) =>
+        logger.info(s"$successMsg ${vec.mkString(",")}")
+        Future.successful(())
+      case Left(vec) => Future.failed( new RuntimeException(
+        failureMessage  + vec.map(_._1).mkString(",")  ,
+        vec.head._2)   )
+    })
+
+
 
   }
 
@@ -270,12 +288,12 @@ object Script extends App {
       jsValueForTemplateImport <- importTemplateIntoProcessGroupReturnsJsValue(processGroupEntity.getId, templateId)
       (httpContextMapIds, componentsWeNeedToRun) <- findIdsOfHttpContextMapsAndNonRunningComponents(jsValueForTemplateImport).map(Future.successful(_)).recover{case e => Future.failed(e)}.get
       httpContextMapResponse <- Future.sequence(httpContextMapIds.map(id => updateStateOfHttpContextMap(id, "ENABLED", clientId)))
-      procRunningResponse <- Future.sequence(componentsWeNeedToRun.map(processor => updateStateOfProcessor(processor.id, "RUNNING", clientId)))
+      _ <- updateProcessorsStates(componentsWeNeedToRun, "RUNNING", clientId, "set all desired runnable processors to run state. Ids of these processors are", "Failed to set these processors to runnable state:")
 
-    } yield (httpContextMapResponse, procRunningResponse)
+    } yield (httpContextMapResponse)
 
 
-  println("result was\n" +
+  logger.info("result was\n" +
     await(fut))
   
   
