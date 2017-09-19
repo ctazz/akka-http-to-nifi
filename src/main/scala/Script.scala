@@ -129,9 +129,8 @@ object Script extends App {
   }
 
   //We provide a position here. Not sure we have to do that.
-  //TODO  parentGroupId vs. clientId. What's going on here?
-  def createProcessGroupJson(parentGroupId: String, name: String): String = {
-    s"""{"revision":{"clientId":"$parentGroupId","version":0},"component":{"name":"$name","position":{"x":181,"y":140.5}}}"""
+  def createProcessGroupJson(name: String, clientId: String): String = {
+    s"""{"revision":{"clientId":"$clientId","version":0},"component":{"name":"$name","position":{"x":181,"y":140.5}}}"""
   }
 
   //If we don't provide originX and originY, we see:
@@ -188,9 +187,9 @@ object Script extends App {
     } yield (xml \ "template" \ "id").headOption.map{_.text.trim}.get
   }
 
-  def createProcessGroup(parentProcessGroupId: String, processGroupName: String): Future[ProcessGroupEntity] = {
+  def createProcessGroup(parentProcessGroupId: String, processGroupName: String, clientId: String): Future[ProcessGroupEntity] = {
     HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${parentProcessGroupId}/process-groups")),
-      entity = HttpEntity.apply(ContentTypes.`application/json`, createProcessGroupJson(parentProcessGroupId, processGroupName))
+      entity = HttpEntity.apply(ContentTypes.`application/json`, createProcessGroupJson(processGroupName, clientId))
     ).withResp(respEntity =>   Unmarshal(respEntity).to[String].map(JaxBConverters.JsonConverters.fromJsonString[ProcessGroupEntity]) )
 
   }
@@ -267,7 +266,7 @@ object Script extends App {
       replacedText <-  replacement(ourTemplateFile, replaceTemplateValues)
       templateId <- uploadTemplate(nifiRootProcessorGroupId, replacedText, ourTemplateFile.getName)
       clientId <-  findClientId
-      processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup")
+      processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup", clientId)
       jsValueForTemplateImport <- importTemplateIntoProcessGroupReturnsJsValue(processGroupEntity.getId, templateId)
       (httpContextMapIds, componentsWeNeedToRun) <- findIdsOfHttpContextMapsAndNonRunningComponents(jsValueForTemplateImport).map(Future.successful(_)).recover{case e => Future.failed(e)}.get
       httpContextMapResponse <- Future.sequence(httpContextMapIds.map(id => updateStateOfHttpContextMap(id, "ENABLED", clientId)))

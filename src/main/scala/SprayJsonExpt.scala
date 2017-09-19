@@ -154,20 +154,6 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
 
   import Misc._
 
-  val tryOfVector: Try[Vector[Map[String, JsValue]]] = deep(theBigJsValue, List("flow", "processors")).flatMap{processorsValue: JsValue =>
-    jsArrayToVector(processorsValue).flatMap{vec: Vector[JsValue] =>
-      sequence(vec.map(processorJsValue => deep(processorJsValue, List("component", "config", "properties")).flatMap(asMap)  ))
-    }
-  }
-
-  val httpContextMapIds: Try[Set[String]] = tryOfVector.map{vec =>
-    vec.map(_.get("HTTP Context Map")).collect{ case Some(jsValue) => jsValue   }
-  }.flatMap{jsValueIds =>
-      sequence(jsValueIds.map(asString)).map(_.to[Set])
-  }
-
-  println(s"httpContextMapIds is $httpContextMapIds")
-
   //This is where we could use a cats applicative
   def componentInfoFromMap(map: Map[String, JsValue]): Try[ComponentInfo] = {
 
@@ -186,11 +172,6 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
 
   }
 
-  val dddd  = deep(theBigJsValue, List("flow", "processors")).flatMap{processorsValue: JsValue =>
-    jsArrayToVector(processorsValue).flatMap{vec: Vector[JsValue] =>
-      sequence(vec.map(processorJsValue => deep(processorJsValue, List("component")).flatMap(asMap).flatMap(componentInfoFromMap  )  ))
-    }.map(_.filter(_.name != "Dummy"))
-  }
 
 
   def findIdsOfHttpContextMapsAndNonRunningComponents(bigJsValue: JsValue): Try[(Set[String], Vector[ComponentInfo])] = {
@@ -230,12 +211,6 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
   }
 
   findIdsOfHttpContextMapsAndNonRunningComponents(theBigJsValue)
-
-
-
-
-
-  println(s"componentInfo is ${dddd}")
 
 
 
