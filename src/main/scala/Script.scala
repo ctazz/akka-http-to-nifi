@@ -20,7 +20,7 @@ import org.apache.nifi.web.api.dto.flow.FlowDTO
 import org.apache.nifi.web.api.dto.status.ProcessorStatusDTO
 import org.apache.nifi.web.api.dto.{ProcessorDTO, ProcessorConfigDTO}
 import org.apache.nifi.web.api.entity.{ProcessorEntity, ProcessGroupFlowEntity, ProcessGroupEntity}
-import spray.json.JsValue
+import spray.json.{JsString, JsValue}
 import scala.concurrent.{Await, Future, ExecutionContextExecutor}
 import java.io.File
 import akka.http.scaladsl.marshalling.Marshal
@@ -33,7 +33,7 @@ import scala.collection.JavaConverters._
 import akka.http.scaladsl.marshallers.xml.ScalaXmlSupport._
 import spray.json.DefaultJsonProtocol._
 
-import scala.util.Try
+import scala.util.{Failure, Try}
 import scala.xml.NodeSeq
 
 //TODO we've arbitrarily specified component positions in some places.
@@ -205,21 +205,60 @@ object Script extends App {
       entity = HttpEntity.apply(ContentTypes.`application/json`, componentStateUpdateJson(httpContextMapId, state, clientId))
     ).withResp(respEntity =>   Unmarshal(respEntity).to[String] )
 
-  }  
-  
+  }
 
-  def findIdsOfHttpContextMaps(theBigJsValue: JsValue): Try[Set[String]] = {
-    val tryOfVector: Try[Vector[Map[String, JsValue]]] = deep(theBigJsValue, List("flow", "processors")).flatMap{processorsValue: JsValue =>
-      jsArrayToVector(processorsValue).flatMap{vec: Vector[JsValue] =>
-        Misc.sequence(vec.map(processorJsValue => deep(processorJsValue, List("component", "config", "properties")).flatMap(asMap)  ))
-      }
+  def updateStateOfProcessor(componentId: String, state: String, clientId: String): Future[String] = {
+    HttpRequest(HttpMethods.PUT, uri = nifiUri(Uri.Path(s"$apiPath/processors/${componentId}")),
+      entity = HttpEntity.apply(ContentTypes.`application/json`, componentStateUpdateJson(componentId, state, clientId))
+    ).withResp(respEntity =>   Unmarshal(respEntity).to[String] )
+
+  }
+
+  def componentInfoFromMap(map: Map[String, JsValue]): Try[ComponentInfo] = {
+
+    val tuple: (Option[JsValue], Option[JsValue], Option[JsValue]) = (map.get("id"), map.get("name"), map.get("state"))
+
+    tuple match {
+      case (Some(jsValId), Some(jsValName), Some(jsValState)) =>
+        (jsValId, jsValName, jsValState) match {
+          case (JsString(id), JsString(name), JsString(state)) => scala.util.Success(ComponentInfo(id, name, state))
+          case _ => Failure(JsonReadError(s"Could not parse ComponentInfo from ${map}"))
+        }
+
+      case _ => Failure(JsonReadError(s"Could not parse ComponentInfo from ${map}"))
     }
 
-    tryOfVector.map{vec =>
-      vec.map(_.get("HTTP Context Map")).collect{ case Some(jsValue) => jsValue   }
-    }.flatMap{jsValueIds =>
-      Misc.sequence(jsValueIds.map(asString)).map(_.to[Set])
+
+  }
+
+  def findIdsOfHttpContextMapsAndNonRunningComponents(bigJsValue: JsValue): Try[(Set[String], Vector[ComponentInfo])] = {
+    val theComponents: Try[Vector[JsValue]] = {
+      for {
+        jsArrayOfProcessors: JsValue <- deep(bigJsValue, List("flow", "processors"))
+        vecOfJsProcessors: Vector[JsValue] <- jsArrayToVector(jsArrayOfProcessors)
+        processorComponents <- Misc.sequence(vecOfJsProcessors.map(processorJsValue => deep(processorJsValue, List("component"))))
+      } yield processorComponents
     }
+
+    val tryOfHttpContextMapIds: Try[Set[String]] = theComponents.flatMap { comps: Vector[JsValue] =>
+      Misc.sequence(comps.map(comp =>
+        deep(comp, List("config", "properties")).flatMap(asMap).map(_.get("HTTP Context Map"))
+      )
+      )
+    }.map { v: Vector[Option[JsValue]] =>
+      v.collect { case Some(jsValue) => jsValue }
+    }.flatMap{vec: Vector[JsValue] =>
+      Misc.sequence(vec.map(asString)).map(_.to[Set])
+    }
+
+
+    val tryOfComponentsThatNeedToBeEnabled: Try[Vector[ComponentInfo]] = theComponents.flatMap{comps: Vector[JsValue] =>
+      Misc.sequence(comps.map(comp => asMap(comp).flatMap(componentInfoFromMap)   ))
+    }.map(_.filter(ci => ci.name != "Dummy" && ci.state != "RUNNING"))
+
+
+    Misc.tryMap2(tryOfHttpContextMapIds, tryOfComponentsThatNeedToBeEnabled)( (_,_) )
+
   }
 
 
@@ -230,10 +269,11 @@ object Script extends App {
       clientId <-  findClientId
       processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup")
       jsValueForTemplateImport <- importTemplateIntoProcessGroupReturnsJsValue(processGroupEntity.getId, templateId)
-      ids = findIdsOfHttpContextMaps(jsValueForTemplateImport).get //TODO Handle Try inside a function
-      res <- Future.sequence(ids.map(id => updateStateOfHttpContextMap(id, "ENABLED", clientId)))
+      (httpContextMapIds, componentsWeNeedToRun) <- findIdsOfHttpContextMapsAndNonRunningComponents(jsValueForTemplateImport).map(Future.successful(_)).recover{case e => Future.failed(e)}.get
+      httpContextMapResponse <- Future.sequence(httpContextMapIds.map(id => updateStateOfHttpContextMap(id, "ENABLED", clientId)))
+      procRunningResponse <- Future.sequence(componentsWeNeedToRun.map(processor => updateStateOfProcessor(processor.id, "RUNNING", clientId)))
 
-    } yield (res)
+    } yield (httpContextMapResponse, procRunningResponse)
 
 
   println("result was\n" +

@@ -23,7 +23,7 @@ object Misc {
   }
 
 
-  //TODO Use canBuildFrom, or use cats library
+  //TODO Use cats library, or at least CanBuildFrom
   def sequence[T](seq: Vector[Try[T]]): Try[Vector[T]] = seq.foldLeft(Success(Vector.empty[T]): Try[Vector[T]]){ (acc: Try[Vector[T]], next: Try[T]) =>
 
     acc match {
@@ -36,5 +36,14 @@ object Misc {
 
   }
 
+  def tryMap2[A,B,Z](fa: Try[A], fb: Try[B] )(f: (A,B) => Z): Try[Z] = {
+    for {
+      a <- fa
+      b <- fb
+    } yield f(a,b)
+  }
+
 
 }
+
+case class ComponentInfo(id: String, name: String, state: String)

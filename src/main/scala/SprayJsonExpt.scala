@@ -168,6 +168,76 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
 
   println(s"httpContextMapIds is $httpContextMapIds")
 
+  //This is where we could use a cats applicative
+  def componentInfoFromMap(map: Map[String, JsValue]): Try[ComponentInfo] = {
+
+    val tuple: (Option[JsValue], Option[JsValue], Option[JsValue]) = (map.get("id"), map.get("name"), map.get("state"))
+
+    tuple match {
+      case (Some(jsValId), Some(jsValName), Some(jsValState)) =>
+        (jsValId, jsValName, jsValState) match {
+          case (JsString(id), JsString(name), JsString(state)) => Success(ComponentInfo(id, name, state))
+          case _ => Failure(JsonReadError(s"Could not parse ComponentInfo from ${map}"))
+      }
+
+      case _ => Failure(JsonReadError(s"Could not parse ComponentInfo from ${map}"))
+    }
+
+
+  }
+
+  val dddd  = deep(theBigJsValue, List("flow", "processors")).flatMap{processorsValue: JsValue =>
+    jsArrayToVector(processorsValue).flatMap{vec: Vector[JsValue] =>
+      sequence(vec.map(processorJsValue => deep(processorJsValue, List("component")).flatMap(asMap).flatMap(componentInfoFromMap  )  ))
+    }.map(_.filter(_.name != "Dummy"))
+  }
+
+
+  def findIdsOfHttpContextMapsAndNonRunningComponents(bigJsValue: JsValue): Try[(Set[String], Vector[ComponentInfo])] = {
+    val theComponents: Try[Vector[JsValue]] = {
+      for {
+        jsArrayOfProcessors: JsValue <- deep(bigJsValue, List("flow", "processors"))
+        vecOfJsProcessors: Vector[JsValue] <- jsArrayToVector(jsArrayOfProcessors)
+        processorComponents <- sequence(vecOfJsProcessors.map(processorJsValue => deep(processorJsValue, List("component"))))
+      } yield processorComponents
+    }
+
+    val tryOfHttpContextMapIds: Try[Set[String]] = theComponents.flatMap { comps: Vector[JsValue] =>
+      sequence(comps.map(comp =>
+        deep(comp, List("config", "properties")).flatMap(asMap).map(_.get("HTTP Context Map"))
+      )
+      )
+    }.map { v: Vector[Option[JsValue]] =>
+      v.collect { case Some(jsValue) => jsValue }
+    }.flatMap{vec: Vector[JsValue] =>
+      sequence(vec.map(asString)).map(_.to[Set])
+    }
+
+    println(s"httpContextMapIds are $tryOfHttpContextMapIds")
+
+
+    val tryOfComponentsThatNeedToBeEnabled: Try[Vector[ComponentInfo]] = theComponents.flatMap{comps: Vector[JsValue] =>
+      sequence(comps.map(comp => asMap(comp).flatMap(componentInfoFromMap)   ))
+    }.map(_.filter(ci => ci.name != "Dummy" && ci.state != "RUNNING"))
+
+    println(s"Try Vector of Component Info is $tryOfComponentsThatNeedToBeEnabled")
+
+    Misc.tryMap2(tryOfHttpContextMapIds, tryOfComponentsThatNeedToBeEnabled)( (_,_) )
+
+
+
+
+  }
+
+  findIdsOfHttpContextMapsAndNonRunningComponents(theBigJsValue)
+
+
+
+
+
+  println(s"componentInfo is ${dddd}")
+
+
 
 
 
