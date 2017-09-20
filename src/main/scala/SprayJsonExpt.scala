@@ -217,7 +217,7 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
 
 
 
-  def await[T](future: Future[T], dur: FiniteDuration = 300.millis): T =  Await.result(future, 2000.millis)
+  def await[T](future: Future[T], dur: FiniteDuration = 300.millis): T =  Await.result(future, dur)
 
 
 

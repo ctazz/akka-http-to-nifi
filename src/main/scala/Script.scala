@@ -31,6 +31,7 @@ import scala.collection.JavaConverters._
 
 import akka.http.scaladsl.marshallers.xml.ScalaXmlSupport._
 import spray.json.DefaultJsonProtocol._
+import CollectionHelp._
 
 import scala.util.{Failure, Try}
 import scala.xml.NodeSeq
@@ -118,10 +119,23 @@ object Script extends App {
 
   implicit class HttpRequestMonkeyPatch(val req: HttpRequest) extends AnyVal {
     import NifiResponseHelp._
+    //Note: Failure to discard the HttpEntity on an unit return will cause Akka http to do back-pressure, and we don't want that.
+    //Currently we solve the problem by expecting callers of withResp to use unitReturnAndDiscardBytes
+    //when they want to return unit.
+    // We could instead have added a (implicit CT: ClassTag[T]) to this signature, and used
+    //val discardEntity = returnClass.getSimpleName == "void"
+    //to tell our getIt function to discard the entity automatically.
     def withResp[T](f: HttpEntity => Future[T], acceptableStatus: Set[Int] = Set(200, 201)): Future[T] = {
       getIt(req, acceptableStatus)(f)
     }
   }
+
+
+  /**
+   * From http://doc.akka.io/docs/akka-http/current/scala/http/implications-of-streaming-http-entity.html
+   * Consuming (or discarding) the Entity of a request is mandatory! If accidentally left neither consumed or discarded Akka HTTP will assume the incoming data should remain back-pressured, and will stall the incoming data via TCP back-pressure mechanisms. A client should consume the Entity regardless of the status of the HttpResponse.
+   */
+  val unitReturnAndDiscardBytes: HttpEntity => Future[Unit] = {respEntity => respEntity.dataBytes.runWith(Sink.ignore) ;  Future.successful(()) }
 
   def nifiUri(path: Uri.Path): Uri = {
     Uri(scheme = "http", authority = Uri.Authority(Uri.Host(config.getString("services.nifi-api.host")), port = config.getInt("services.nifi-api.port")), path = path)
@@ -197,36 +211,40 @@ object Script extends App {
     s"""{"revision":{"clientId":"$clientId","version":0},"component":{"id":"$componentId","state":"$state"}}"""
   }
 
-  def updateStateOfHttpContextMap(httpContextMapId: String, state: String, clientId: String): Future[String] = {
+  def updateStateOfHttpContextMap(httpContextMapId: String, state: String, clientId: String): Future[Unit] = {
     HttpRequest(HttpMethods.PUT, uri = nifiUri(Uri.Path(s"$apiPath/controller-services/${httpContextMapId}")),
       entity = HttpEntity.apply(ContentTypes.`application/json`, componentStateUpdateJson(httpContextMapId, state, clientId))
-    ).withResp(respEntity =>   Unmarshal(respEntity).to[String] )
+    ).withResp{unitReturnAndDiscardBytes }
 
   }
 
-  def updateStateOfProcessor(componentId: String, state: String, clientId: String): Future[Unit] = {
+  def updateStateOfOneProcessor(componentId: String, state: String, clientId: String): Future[Unit] = {
     HttpRequest(HttpMethods.PUT, uri = nifiUri(Uri.Path(s"$apiPath/processors/${componentId}")),
       entity = HttpEntity.apply(ContentTypes.`application/json`, componentStateUpdateJson(componentId, state, clientId))
-    ).withResp(_ => Future.successful(()) )
+    ).withResp(unitReturnAndDiscardBytes )
 
   }
 
-  import CollectionHelp._
-  def updateProcessorsStates(componentsWeNeedToRun: Vector[ComponentInfo], desiredState: String, clientId: String, successMsg: String, failureMessage: String): Future[Unit] = {
-    Future.sequence(componentsWeNeedToRun.map(processor =>
-      updateStateOfProcessor(processor.id, desiredState, clientId).map(_ => Right(processor.id) ).recover{
-        case ex => Left(processor.id -> ex)
+  def runMany[K](ids: Vector[K], f: K => Future[Unit], successMsg: String, failureMsg: String): Future[Unit] = {
+    val startTime = System.currentTimeMillis()
+    logger.info(s"ids we're running: $ids")
+    Future.sequence(ids.map(id =>
+      f(id).map{_ =>
+        logger.debug(s"success. id is ${id}. Time elapsed is ${System.currentTimeMillis - startTime}")
+        Right(id) }.recover{
+        case ex =>
+          logger.info(s"failure. is is ${id} and ex is $ex")
+          Left(id -> ex)
       }
 
-    )).map{vec: Vector[Either[(String, Throwable), String]] => Either.sequence(vec)   }.flatMap(_ match {
+    )).map{vec: Vector[Either[(K, Throwable), K]] => Either.sequence(vec)   }.flatMap(_ match {
       case Right(vec) =>
         logger.info(s"$successMsg ${vec.mkString(",")}")
         Future.successful(())
       case Left(vec) => Future.failed( new RuntimeException(
-        failureMessage  + vec.map(_._1).mkString(",")  ,
+        failureMsg  + vec.map(_._1).mkString(",")  ,
         vec.head._2)   )
     })
-
 
 
   }
@@ -282,22 +300,37 @@ object Script extends App {
   val fut =
     for {
       replacedText <-  replacement(ourTemplateFile, replaceTemplateValues)
-      templateId <- uploadTemplate(nifiRootProcessorGroupId, replacedText, ourTemplateFile.getName)
-      clientId <-  findClientId
-      processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup", clientId)
-      jsValueForTemplateImport <- importTemplateIntoProcessGroupReturnsJsValue(processGroupEntity.getId, templateId)
-      (httpContextMapIds, componentsWeNeedToRun) <- findIdsOfHttpContextMapsAndNonRunningComponents(jsValueForTemplateImport).map(Future.successful(_)).recover{case e => Future.failed(e)}.get
-      httpContextMapResponse <- Future.sequence(httpContextMapIds.map(id => updateStateOfHttpContextMap(id, "ENABLED", clientId)))
-      _ <- updateProcessorsStates(componentsWeNeedToRun, "RUNNING", clientId, "set all desired runnable processors to run state. Ids of these processors are", "Failed to set these processors to runnable state:")
 
-    } yield (httpContextMapResponse)
+      templateId <- uploadTemplate(nifiRootProcessorGroupId, replacedText, ourTemplateFile.getName)
+
+      clientId <-  findClientId
+
+      processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup", clientId)
+
+      jsValueForTemplateImport <- importTemplateIntoProcessGroupReturnsJsValue(processGroupEntity.getId, templateId)
+
+      (httpContextMapIds, componentsWeNeedToRun) <- findIdsOfHttpContextMapsAndNonRunningComponents(jsValueForTemplateImport).map(Future.successful(_)).recover{case e => Future.failed(e)}.get
+
+      _ <- runMany[String](
+      ids = httpContextMapIds.toVector,
+      f = updateStateOfHttpContextMap(_, "ENABLED", clientId),
+      successMsg = "set all Http Context Maps to enabled state. Ids are",
+      failureMsg = "Failed to set these Http Context Maps to enabled state:")
+
+      _ <- runMany[String](
+      ids = componentsWeNeedToRun.map(_.id),
+      f = updateStateOfOneProcessor(_, "RUNNING", clientId),
+      successMsg = "set all desired runnable processors to running state. Ids of these processors are:",
+      failureMsg = "Failed to set these processors to runnable state:")
+
+    } yield ()
 
 
   logger.info("result was\n" +
     await(fut))
   
   
-  def await[T](future: Future[T], dur: FiniteDuration = 300.millis): T =  Await.result(future, 2000.millis)
+  def await[T](future: Future[T], dur: FiniteDuration = 2000.millis): T =  Await.result(future, dur)
 
   println("hello")
   System.exit(0)
