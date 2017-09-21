@@ -53,7 +53,8 @@ object Script extends App {
   logger.info(s"nifiRootProcessorGroupId is $nifiRootProcessorGroupId")
   val ourTemplateFile = new File(args(1))
   //TODO Get this from somewhere. It's the key-values for text replacement inside the chosen template
-  val replaceTemplateValues =  """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","listeningPort":"9010","allowedPaths":"/data", "topicNameRule":"${http.headers.Topic}"}"""
+  //val replaceTemplateValues =  """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","listeningPort":"9010","allowedPaths":"/data", "topicNameRule":"${http.headers.Topic}"}"""
+  val replaceTemplateValues = """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","deliveryGuarantee":"0","inputDirectory":"/Users/charlestassoni/scala/blueprint/nifi/udemyExercises/GetFileExample/source","fileFilter":"[^\\\\.].*","fileBatchSize":"10","keepSourceFile":"false","recurseSubdirectories":"true"}"""
 
   val apiPath = config.getString("services.nifi-api.path")
   val replace: (String, Map[String, String]) => String = Misc.replaceText("\\{\\{", "}}") _
@@ -184,7 +185,7 @@ object Script extends App {
   //TODO: at some point we could do text replace by using Framing (this article doesn't quite do that, but it's a start: https://stackoverflow.com/questions/40224457/reading-a-csv-files-using-akka-streams)
   //and we probably could send streaming text to the multipart/form-data code.  But that's for later.
   def replacement(templateFile: File,  replaceTemplateValues: String): Future[String] = {
-    val r: Map[String, String] => String = replace(Misc.readText(ourTemplateFile.getPath), _)
+    val r: Map[String, String] => String = replace(Misc.readText(templateFile.getPath), _)
     for {
       jsVal <- Unmarshal(replaceTemplateValues).to[JsValue]
     } yield r(jsVal.convertTo[Map[String, String]])

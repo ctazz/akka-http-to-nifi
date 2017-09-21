@@ -190,7 +190,7 @@
         <properties>
           <entry>
             <key>Known Brokers</key>
-            <value>127.0.0.1:9093,127.0.0.1:9094</value>
+            <value>{{knownBrokers}}</value>
           </entry>
           <entry>
             <key>Topic Name</key>
@@ -203,8 +203,8 @@
             <key>Kafka Key</key>
           </entry>
           <entry>
-            <key>Delivery Guarantee</key>
-            <value>0</value>
+            <key>Delivery Guarantee</key><!--Allowable values are 0 = Best Effort, 1 = Guarantee Single Node Delivery, all = Guarantee Replicated Delivery -->
+            <value>{{deliveryGuarantee}}</value>
           </entry>
           <entry>
             <key>Message Delimiter</key>
@@ -414,26 +414,26 @@
         <properties>
           <entry>
             <key>Input Directory</key>
-            <value>/Users/charlestassoni/scala/blueprint/nifi/udemyExercises/GetFileExample/source</value>
+            <value>{{inputDirectory}}</value>
           </entry>
           <entry>
             <key>File Filter</key>
-            <value>[^\.].*</value>
+            <value>{{fileFilter}}</value>
           </entry>
           <entry>
             <key>Path Filter</key>
           </entry>
           <entry>
             <key>Batch Size</key>
-            <value>10</value>
+            <value>{{fileBatchSize}}</value>
           </entry>
           <entry>
             <key>Keep Source File</key>
-            <value>false</value>
+            <value>{{keepSourceFile}}</value>
           </entry>
           <entry>
             <key>Recurse Subdirectories</key>
-            <value>true</value>
+            <value>{{recurseSubdirectories}}</value>
           </entry>
           <entry>
             <key>Polling Interval</key>
