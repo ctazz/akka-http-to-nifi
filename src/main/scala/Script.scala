@@ -225,21 +225,23 @@ object Script extends App {
 
   }
 
-  def runMany[K](ids: Vector[K], f: K => Future[Unit], successMsg: String, failureMsg: String): Future[Unit] = {
-    val startTime = System.currentTimeMillis()
-    logger.info(s"ids we're running: $ids")
-    Future.sequence(ids.map(id =>
-      f(id).map{_ =>
-        logger.debug(s"success. id is ${id}. Time elapsed is ${System.currentTimeMillis - startTime}")
-        Right(id) }.recover{
+  def runManyGeneric[K, V](args: Vector[K], f: K => Future[V]): Future[Either[ Vector[(K,Throwable)], Vector[(K,V)]  ]] = {
+    Future.sequence(args.map(arg =>
+      f(arg).map{v =>
+        Right(arg ->  v)
+      }.recover{
         case ex =>
-          logger.info(s"failure. is is ${id} and ex is $ex")
-          Left(id -> ex)
+          logger.info(s"failure. is is ${arg} and ex is $ex")
+          Left(arg -> ex)
       }
 
-    )).map{vec: Vector[Either[(K, Throwable), K]] => Either.sequence(vec)   }.flatMap(_ match {
+    )).map{vec: Vector[Either[(K, Throwable), (K,V)]] => Either.sequence(vec)   }
+  }
+
+  def runMany[K](ids: Vector[K], f: K => Future[Unit], successMsg: String, failureMsg: String): Future[Unit] = {
+      runManyGeneric[K, Unit](ids, f).flatMap(_ match {
       case Right(vec) =>
-        logger.info(s"$successMsg ${vec.mkString(",")}")
+        logger.info(s"$successMsg ${vec.map(_._1).mkString(",")}")
         Future.successful(())
       case Left(vec) => Future.failed( new RuntimeException(
         failureMsg  + vec.map(_._1).mkString(",")  ,
@@ -314,7 +316,7 @@ object Script extends App {
       _ <- runMany[String](
       ids = httpContextMapIds.toVector,
       f = updateStateOfHttpContextMap(_, "ENABLED", clientId),
-      successMsg = "set all Http Context Maps to enabled state. Ids are",
+      successMsg = "set all Http Context Maps to enabled state. Ids are:",
       failureMsg = "Failed to set these Http Context Maps to enabled state:")
 
       _ <- runMany[String](
