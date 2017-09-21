@@ -47,19 +47,21 @@ object Script extends App {
   val logger: LoggingAdapter = Logging(system, getClass)
 
   lazy val config = ConfigFactory.load()
-
-  //The value for my local nifi instance si 5cb229a2-015e-1000-af7e-47911f0b10d6
-  val nifiRootProcessorGroupId = args(0)
-  logger.info(s"nifiRootProcessorGroupId is $nifiRootProcessorGroupId")
-  val ourTemplateFile = new File(args(1))
-  //TODO Get this from somewhere. It's the key-values for text replacement inside the chosen template
-  //val replaceTemplateValues =  """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","listeningPort":"9010","allowedPaths":"/data", "topicNameRule":"${http.headers.Topic}"}"""
-  val replaceTemplateValues = """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","deliveryGuarantee":"0","inputDirectory":"/Users/charlestassoni/scala/blueprint/nifi/udemyExercises/GetFileExample/source","fileFilter":"[^\\\\.].*","fileBatchSize":"10","keepSourceFile":"false","recurseSubdirectories":"true", "fileToKafkaTopicRule":"${filename:getDelimitedField(1,'_'):trim()}"}"""
-
   val apiPath = config.getString("services.nifi-api.path")
+  val templateDir = config.getString("template.directory")
   val replace: (String, Map[String, String]) => String = Misc.replaceText("\\{\\{", "}}") _
 
-  //TODO This would be re-usable if we passed in some values for the Multipar.FormData.BodyPart
+  implicit val inputDataFormat = jsonFormat4(InputData.apply)
+
+
+  //The value for my local nifi instance si 5cb229a2-015e-1000-af7e-47911f0b10d6
+  val inputFilename = args(0)
+
+
+
+  //According to documentation I read somewhere, if we need to increase the size of file uploads,
+  //we can set this option in application.conf:
+  // akka.http.server.parsing.max-content-length = 512m
   object TemplateUploadViaMultipart {
     def createEntity(file: File): Future[RequestEntity] = {
       require(file.exists())
@@ -182,15 +184,6 @@ object Script extends App {
     HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
   }
 
-  //TODO: at some point we could do text replace by using Framing (this article doesn't quite do that, but it's a start: https://stackoverflow.com/questions/40224457/reading-a-csv-files-using-akka-streams)
-  //and we probably could send streaming text to the multipart/form-data code.  But that's for later.
-  def replacement(templateFile: File,  replaceTemplateValues: String): Future[String] = {
-    val r: Map[String, String] => String = replace(Misc.readText(templateFile.getPath), _)
-    for {
-      jsVal <- Unmarshal(replaceTemplateValues).to[JsValue]
-    } yield r(jsVal.convertTo[Map[String, String]])
-  }
-
   def uploadTemplate(parentProcessGroupId: String, text: String, filename: String): Future[String] = {
     for {
       templateUploadReq <- TemplateUploadViaMultipart.createRequest(
@@ -299,16 +292,23 @@ object Script extends App {
 
   }
 
-  //TODO We're not parsing the responses when we attempt to enable HttpContextMaps and formerly non-running processors
+
+  //TODO: I'd like to stream data from our template file, use Framing to cut the file into lines, do text replace on the streaming lines,
+  //and stream the replaced lines as we upload.  But don't know how to do that now.
+  //This article doesn't quite do that, but at least it shows the use of framing: https://stackoverflow.com/questions/40224457/reading-a-csv-files-using-akka-streams)
+
   val fut =
     for {
-      replacedText <-  replacement(ourTemplateFile, replaceTemplateValues)
 
-      templateId <- uploadTemplate(nifiRootProcessorGroupId, replacedText, ourTemplateFile.getName)
+      inputData: InputData <- Unmarshal(Misc.readText(inputFilename)).to[InputData]
+
+      replacedText = replace(Misc.readText(s"$templateDir/${inputData.templateFileName}"), inputData.templateReplacementValues)
+
+      templateId <- uploadTemplate(inputData.nifiRootProcessorGroupId, replacedText, inputData.templateFileName)
 
       clientId <-  findClientId
 
-      processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, "ourProcessGroup", clientId)
+      processGroupEntity: ProcessGroupEntity <- createProcessGroup(inputData.nifiRootProcessorGroupId, inputData.processorGroupName, clientId)
 
       jsValueForTemplateImport <- importTemplateIntoProcessGroupReturnsJsValue(processGroupEntity.getId, templateId)
 

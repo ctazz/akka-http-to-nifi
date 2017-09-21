@@ -4,8 +4,10 @@
 
 Work here is based on a [nice Akka HTTP example](https://github.com/theiterators/akka-http-microservice)
 
-Sample run command:
+Sample run commands:
 
-sbt " run 5cb229a2-015e-1000-af7e-47911f0b10d6  src/main/resources/nifi-templates/http-response-depends-on-kafka.xml"
+sbt " run sampleInputs/for-file-to-kafka-template.json"
+ 
+sbt " run sampleInputs/for-http-response-depends-on-kafka.json"
 
-Note: For now you should use http-response-depends-on-kafka.xml as the template file, because I haven't figured out how to pass our JSON template-customization String in through sbt. 
+Note: Before running, go to the sample input file you want to use, and change any environment specific settings to something appropriate for your setup. 

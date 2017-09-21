@@ -1,0 +1,11 @@
+{
+  "templateFileName":"http-response-depends-on-kafka.xml",
+  "nifiRootProcessorGroupId":"5cb229a2-015e-1000-af7e-47911f0b10d6",
+  "processorGroupName":"httpPostToKafka",
+  "templateReplacementValues":{
+    "knownBrokers":"127.0.0.1:9093,127.0.0.1:9094",
+    "listeningPort":"9010",
+    "allowedPaths":"/data",
+    "topicNameRule":"${http.headers.Topic}"
+  }
+}
