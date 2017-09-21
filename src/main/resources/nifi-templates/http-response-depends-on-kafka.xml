@@ -423,7 +423,7 @@
           </entry>
           <entry>
             <key>Topic Name</key>
-            <value>${http.headers.Topic}</value>
+            <value>{{topicNameRule}}</value>
           </entry>
           <entry>
             <key>Partition</key>

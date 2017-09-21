@@ -12,13 +12,13 @@ object Misc {
 
   //This is a quick and dirty way to do text replace. If the text String is long, it would be very inefficient.
   def replaceText(start: String, end: String)(text: String, replaceValues: Map[String, String]): String = {
-    replaceValues.foldLeft(text){ (text, keyAndValue) =>
+    val dollarSymbol = "XX_DOLLAR_SYMBOL_XX"
+    replaceValues.mapValues(_.replaceAll("\\$", dollarSymbol)).foldLeft(text){ (text, keyAndValue) =>
       keyAndValue match {
         case (variable, theReplacement) =>
           text.replaceAll( start + variable + end, theReplacement)
       }
-
-    }
+    }.replaceAll(dollarSymbol, "\\$")
 
   }
 

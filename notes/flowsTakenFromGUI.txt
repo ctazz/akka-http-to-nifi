@@ -96,15 +96,14 @@ And one other that we probably don't need?
 
 
 
-
-
-
-
-
-
-
-
-
+   Hey! Can I get all queues in a similar way?  That would be easier than fishing through the processGroup flow monster
+  Dropping items in a connection/queue
+    1a14fd1d-a016-3bc8-b869-bf0707601146 is the queuId, which I think is also the connectionId.
+  curl 'http://localhost:8081/nifi-api/flowfile-queues/1a14fd1d-a016-3bc8-b869-bf0707601146/drop-requests' -X POST -H 'Origin: http://localhost:8081' -H 'Accept-Encoding: gzip, deflate, br' -H 'Accept-Language: en-US,en;q=0.8' -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.91 Safari/537.36' -H 'Content-Type: application/json' -H 'Accept: application/json, text/javascript, */*; q=0.01' -H 'Referer: http://localhost:8081/nifi/?processGroupId=a3f6c6f9-015e-1000-e52a-1ca1e3f00aad&componentIds=1a14fd1d-a016-3bc8-b869-bf0707601146' -H 'X-Requested-With: XMLHttpRequest' -H 'Connection: keep-alive' -H 'Content-Length: 0' --compressed
+   I've copied returns on the following two lines: Note that we'll need to hit this in a loop, because it sets off some process that doesn't work immediately.
+   Note that the first response says "percentCompleted": 0, "finished": false, "currentCount": 4, and the next one shows 100, true, 0 for those value.
+{"dropRequest":{"id":"a473624a-015e-1000-0904-9365b41f7bec","uri":"http://localhost:8081/nifi-api/flowfile-queues/1a14fd1d-a016-3bc8-b869-bf0707601146/drop-requests/a473624a-015e-1000-0904-9365b41f7bec","submissionTime":"09/21/2017 08:39:38.826 EDT","lastUpdated":"09/21/2017 08:39:38.826 EDT","percentCompleted":0,"finished":false,"currentCount":4,"currentSize":268,"current":"4 / 268 bytes","originalCount":4,"originalSize":268,"original":"4 / 268 bytes","droppedCount":0,"droppedSize":0,"dropped":"0 / 0 bytes","state":"Waiting for destination component to complete its action"}}
+{"dropRequest":{"id":"a47372fb-015e-1000-d4a6-dd822769ec5a","uri":"http://localhost:8081/nifi-api/flowfile-queues/1a14fd1d-a016-3bc8-b869-bf0707601146/drop-requests/a47372fb-015e-1000-d4a6-dd822769ec5a","submissionTime":"09/21/2017 08:39:43.099 EDT","lastUpdated":"09/21/2017 08:39:43.099 EDT","percentCompleted":100,"finished":true,"currentCount":0,"currentSize":0,"current":"0 / 0 bytes","originalCount":0,"originalSize":0,"original":"0 / 0 bytes","droppedCount":0,"droppedSize":0,"dropped":"0 / 0 bytes","state":"Completed successfully"}}
 
 
 
