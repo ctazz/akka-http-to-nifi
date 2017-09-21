@@ -54,7 +54,7 @@ object Script extends App {
   val ourTemplateFile = new File(args(1))
   //TODO Get this from somewhere. It's the key-values for text replacement inside the chosen template
   //val replaceTemplateValues =  """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","listeningPort":"9010","allowedPaths":"/data", "topicNameRule":"${http.headers.Topic}"}"""
-  val replaceTemplateValues = """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","deliveryGuarantee":"0","inputDirectory":"/Users/charlestassoni/scala/blueprint/nifi/udemyExercises/GetFileExample/source","fileFilter":"[^\\\\.].*","fileBatchSize":"10","keepSourceFile":"false","recurseSubdirectories":"true"}"""
+  val replaceTemplateValues = """{"knownBrokers":"127.0.0.1:9093,127.0.0.1:9094","deliveryGuarantee":"0","inputDirectory":"/Users/charlestassoni/scala/blueprint/nifi/udemyExercises/GetFileExample/source","fileFilter":"[^\\\\.].*","fileBatchSize":"10","keepSourceFile":"false","recurseSubdirectories":"true", "fileToKafkaTopicRule":"${filename:getDelimitedField(1,'_'):trim()}"}"""
 
   val apiPath = config.getString("services.nifi-api.path")
   val replace: (String, Map[String, String]) => String = Misc.replaceText("\\{\\{", "}}") _

@@ -593,7 +593,7 @@
           </entry>
           <entry>
             <key>kafka-topic</key>
-            <value>${filename:getDelimitedField(1,'_'):trim()}</value>
+            <value>{{fileToKafkaTopicRule}}</value>
           </entry>
         </properties>
         <runDurationMillis>0</runDurationMillis>
