@@ -219,6 +219,22 @@ object Script extends App {
 
   }
 
+  //short circuit upon the first failure
+  def runSequentially[K,V](args: List[K], f: K => Future[V], accum: List[V] = List()  ): Future[List[V]] = {
+
+    args match {
+      case Nil => Future.successful(accum.reverse)
+      case k :: ks =>
+        f(k).flatMap{v =>
+          runSequentially(ks, f, v :: accum)
+        }
+    }
+
+  }
+
+  //run in parallel, and if one or more fails, others may still succeed. The result of running an f against
+  //a K will be associated with that K, and a Vector of the results is returned. If there was one or more failures,
+  //result will be a Vector of K -> Throwable pairs. If all succeeded, the result is a Vector of K -> V
   def runManyGeneric[K, V](args: Vector[K], f: K => Future[V]): Future[Either[ Vector[(K,Throwable)], Vector[(K,V)]  ]] = {
     Future.sequence(args.map(arg =>
       f(arg).map{v =>
@@ -293,16 +309,24 @@ object Script extends App {
   }
 
 
+  //Create process groups in parallel
+/*  val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap{several =>
+    runMany(several, createAndStartProcessGroup, "Succeeded in creating processGroups for these configurations", "failed to create a process group for these configurations")
+  }*/
+
+  //Create process groups one after the other. Might be easier for ops to handle failures this way,
+  //at least until our logging is really good.
+  val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap { several =>
+    runSequentially(several.toList, createAndStartProcessGroup)
+  }
+
+
   //TODO: I'd like to stream data from our template file, use Framing to cut the file into lines, do text replace on the streaming lines,
   //and stream the replaced lines as we upload.  But don't know how to do that now.
   //This article doesn't quite do that, but at least it shows the use of framing: https://stackoverflow.com/questions/40224457/reading-a-csv-files-using-akka-streams)
-
-  val fut =
+  def createAndStartProcessGroup(inputData: InputData): Future[Unit] = {
+    val replacedText = replace(Misc.readText(s"$templateDir/${inputData.templateFileName}"), inputData.templateReplacementValues)
     for {
-
-      inputData: InputData <- Unmarshal(Misc.readText(inputFilename)).to[InputData]
-
-      replacedText = replace(Misc.readText(s"$templateDir/${inputData.templateFileName}"), inputData.templateReplacementValues)
 
       templateId <- uploadTemplate(inputData.nifiRootProcessorGroupId, replacedText, inputData.templateFileName)
 
@@ -327,7 +351,7 @@ object Script extends App {
       failureMsg = "Failed to set these processors to runnable state:")
 
     } yield ()
-
+  }
 
   logger.info("result was\n" +
     await(fut))
@@ -335,8 +359,6 @@ object Script extends App {
   
   def await[T](future: Future[T], dur: FiniteDuration = 2000.millis): T =  Await.result(future, dur)
 
-  println("hello")
-  System.exit(0)
 
 
 

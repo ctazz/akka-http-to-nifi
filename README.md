@@ -4,10 +4,8 @@
 
 Work here is based on a [nice Akka HTTP example](https://github.com/theiterators/akka-http-microservice)
 
-Sample run commands:
+Sample run command:
 
-sbt " run sampleInputs/for-file-to-kafka-template.json"
+sbt " run sampleInputs/sample1.json"
  
-sbt " run sampleInputs/for-http-response-depends-on-kafka.json"
-
 Note: Before running, go to the sample input file you want to use, and change any environment specific settings to something appropriate for your setup. 
