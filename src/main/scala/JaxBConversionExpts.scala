@@ -100,6 +100,7 @@ object JaxBConversionExpts  extends  App {
       //Map here is empty, as are any complex object. Simple attributes of ProcessorConfigDTO, such as schedulingPeriod, are
       //deserialized correctly.
       println(s"properties are ${processorConfigDTO.getProperties}")
+      println(s"descriptors are ${processorConfigDTO.getDescriptors}")
       processorConfigDTO.getProperties.asScala.get("HTTP Context Map")
     }.to[Set]
   }
@@ -113,13 +114,24 @@ object JaxBConversionExpts  extends  App {
   //@@@@@Finding Http Context Maps inside JSON responses
   //Unfortunately, the processors / component / config / properties Map in each of these shows up as a 0 element Map, and
   //until that bug is fixed, we can't use the JaxB representations to find Http Context Maps.
+  //Http Context Map ids from can also be found in .... / config /descriptors, which is another Map, and in there
+  //the key is "HTTP Context Map", and that should somehow hold allowableValues / allowableValue / value, and the associated
+  //entry will be the Http Context Map id. But descriptors also unmarshalls as an empty Map.
+
 
   //1)This looks for Http Context Map ids in the json response for a GET /flow/process-groups/{id}
   val pgfe: ProcessGroupFlowEntity =
     JaxBConverters.JsonConverters.fromJsonString[ProcessGroupFlowEntity](
-      Misc.readText("notes/jsonDumps/fromFlowSlashprocess-groupsSlashId.json")
+      Misc.readText("notes/jsonDumps/fromFlowSlashprocess-groupsSlashId2.json")
     )
   pgfe.getProcessGroupFlow.getFlow.getProcessGroups.asScala
+
+/*  pgfe.getProcessGroupFlow.getFlow.getConnections.asScala.map{conn =>
+    ???
+  }*/
+
+
+
   val httpContextMapIds: Set[Option[String]] = fromFlowDTO(pgfe.getProcessGroupFlow.getFlow)
 
   println("ids of HTTP Context Maps: " + httpContextMapIds)

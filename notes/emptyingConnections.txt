@@ -1,0 +1,49 @@
+1a14fd1d-a016-3bc8-1365-d4290f8304a4 is the connectionId
+curl 'http://localhost:8081/nifi-api/flowfile-queues/1a14fd1d-a016-3bc8-1365-d4290f8304a4/drop-requests' -X POST -H 'Origin: http://localhost:8081' -H 'Accept-Encoding: gzip, deflate, br' -H 'Accept-Language: en-US,en;q=0.8' -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.91 Safari/537.36' -H 'Content-Type: application/json' -H 'Accept: application/json, text/javascript, */*; q=0.01' -H 'Referer: http://localhost:8081/nifi/?processGroupId=aaed736e-015e-1000-a368-72eddf942cc2&componentIds=1a14fd1d-a016-3bc8-1365-d4290f8304a4' -H 'X-Requested-With: XMLHttpRequest' -H 'Connection: keep-alive' -H 'Content-Length: 0' --compressed
+
+drop request id: ab1dba1d-015e-1000-e31a-0be331466634
+{
+   "dropRequest":{
+      "id":"ab1dba1d-015e-1000-e31a-0be331466634",
+      "uri":"http://localhost:8081/nifi-api/flowfile-queues/1a14fd1d-a016-3bc8-1365-d4290f8304a4/drop-requests/ab1dba1d-015e-1000-e31a-0be331466634",
+      "submissionTime":"09/22/2017 15:43:25.725 EDT",
+      "lastUpdated":"09/22/2017 15:43:25.725 EDT",
+      "percentCompleted":0,
+      "finished":false,
+      "currentCount":3,
+      "currentSize":201,
+      "current":"3 / 201 bytes",
+      "originalCount":3,
+      "originalSize":201,
+      "original":"3 / 201 bytes",
+      "droppedCount":0,
+      "droppedSize":0,
+      "dropped":"0 / 0 bytes",
+      "state":"Waiting for destination component to complete its action"
+   }
+}
+
+I think this a GET.  It's in the form:
+http://localhost:8081/nifi-api/flowfile-queues/$connectionId/drop-requests/$dropRequestId
+curl 'http://localhost:8081/nifi-api/flowfile-queues/1a14fd1d-a016-3bc8-1365-d4290f8304a4/drop-requests/ab1dba1d-015e-1000-e31a-0be331466634' -H 'Accept-Encoding: gzip, deflate, br' -H 'Accept-Language: en-US,en;q=0.8' -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.91 Safari/537.36' -H 'Accept: application/json, text/javascript, */*; q=0.01' -H 'Referer: http://localhost:8081/nifi/?processGroupId=aaed736e-015e-1000-a368-72eddf942cc2&componentIds=1a14fd1d-a016-3bc8-1365-d4290f8304a4' -H 'X-Requested-With: XMLHttpRequest' -H 'Connection: keep-alive' --compressed
+
+{
+   "dropRequest":{
+      "id":"ab1dba1d-015e-1000-e31a-0be331466634",
+      "uri":"http://localhost:8081/nifi-api/flowfile-queues/1a14fd1d-a016-3bc8-1365-d4290f8304a4/drop-requests/ab1dba1d-015e-1000-e31a-0be331466634",
+      "submissionTime":"09/22/2017 15:43:25.725 EDT",
+      "lastUpdated":"09/22/2017 15:43:25.726 EDT",
+      "percentCompleted":100,
+      "finished":true,
+      "currentCount":0,
+      "currentSize":0,
+      "current":"0 / 0 bytes",
+      "originalCount":3,
+      "originalSize":201,
+      "original":"3 / 201 bytes",
+      "droppedCount":3,
+      "droppedSize":201,
+      "dropped":"3 / 201 bytes",
+      "state":"Completed successfully"
+   }
+}

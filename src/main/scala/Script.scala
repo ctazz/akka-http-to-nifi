@@ -24,6 +24,8 @@ import scala.concurrent.{Await, Future, ExecutionContextExecutor}
 import java.io.File
 import akka.http.scaladsl.marshalling.Marshal
 
+import NifiApiModel._
+
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
 
@@ -32,6 +34,7 @@ import scala.collection.JavaConverters._
 import akka.http.scaladsl.marshallers.xml.ScalaXmlSupport._
 import spray.json.DefaultJsonProtocol._
 import CollectionHelp._
+import spray.json._
 
 import scala.util.{Failure, Try}
 import scala.xml.NodeSeq
@@ -39,7 +42,7 @@ import scala.xml.NodeSeq
 //TODO we've arbitrarily specified component positions in some places.
 //With importTemplateIntoProcessGroupJson we had to, otherwise we'd get this error:400 Bad Request. Response body was The origin position (x, y) must be specified.
 //So what do we do about component positions?
-object Script extends App {
+object Script extends App with Protocol {
 
   implicit val system = ActorSystem()
   implicit val executor = system.dispatcher
@@ -160,23 +163,16 @@ object Script extends App {
    * -H 'Content-Type: application/json' \
    * --data '{"templateId":"${templateId}","originX":385,"originY":170}'
    */
-  def importTemplateIntoProcessGroup(processGroupId: String, templateId: String): Future[FlowDTO] = {
+  def importTemplateIntoProcessGroup(processGroupId: String, templateId: String): Future[NifiApiModel.NifiFlow] = {
     HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${processGroupId}/template-instance")),
       entity = HttpEntity.apply(ContentTypes.`application/json`, importTemplateIntoProcessGroupJson(templateId))
-    ).withResp(respEntity => Unmarshal(respEntity).to[String].map { str =>
-      JaxBConverters.JsonConverters.fromJsonString[FlowDTO](str)
+    ).withResp(respEntity => Unmarshal(respEntity).to[JsValue].flatMap { js =>
+      deep(js, List("flow")).map(innerJs => Future.successful(innerJs.convertTo[NifiApiModel.NifiFlow])).recover {
+        case ex => Future.failed(ex)
+      }.get
     }
 
     )
-
-  }
-
-  //Same as above.  Unfortunately when converting to JaxB the config/properties end up empty, so we've been
-  //forced to work with JsValues instead.
-  def importTemplateIntoProcessGroupReturnsJsValue(processGroupId: String, templateId: String): Future[JsValue] = {
-    HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${processGroupId}/template-instance")),
-      entity = HttpEntity.apply(ContentTypes.`application/json`, importTemplateIntoProcessGroupJson(templateId))
-    ).withResp(respEntity => Unmarshal(respEntity).to[JsValue]  )
 
   }
 
@@ -200,21 +196,16 @@ object Script extends App {
 
   }
 
-  //TODO Get from case class or from JaxB.
-  def componentStateUpdateJson(componentId: String, state: String, clientId: String): String = {
-    s"""{"revision":{"clientId":"$clientId","version":0},"component":{"id":"$componentId","state":"$state"}}"""
-  }
-
-  def updateStateOfHttpContextMap(httpContextMapId: String, state: String, clientId: String): Future[Unit] = {
-    HttpRequest(HttpMethods.PUT, uri = nifiUri(Uri.Path(s"$apiPath/controller-services/${httpContextMapId}")),
-      entity = HttpEntity.apply(ContentTypes.`application/json`, componentStateUpdateJson(httpContextMapId, state, clientId))
+  def updateStateOfHttpContextMap(updateInfo: UpdateInfo): Future[Unit] = {
+    HttpRequest(HttpMethods.PUT, uri = nifiUri(Uri.Path(s"$apiPath/controller-services/${updateInfo.component.id}")),
+      entity = HttpEntity.apply(ContentTypes.`application/json`, updateInfo.toJson.compactPrint)
     ).withResp{unitReturnAndDiscardBytes }
 
   }
 
-  def updateStateOfOneProcessor(componentId: String, state: String, clientId: String): Future[Unit] = {
-    HttpRequest(HttpMethods.PUT, uri = nifiUri(Uri.Path(s"$apiPath/processors/${componentId}")),
-      entity = HttpEntity.apply(ContentTypes.`application/json`, componentStateUpdateJson(componentId, state, clientId))
+  def updateStateOfOneProcessor(updateInfo: UpdateInfo): Future[Unit] = {
+    HttpRequest(HttpMethods.PUT, uri = nifiUri(Uri.Path(s"$apiPath/processors/${updateInfo.component.id}")),
+      entity = HttpEntity.apply(ContentTypes.`application/json`, updateInfo.toJson.compactPrint)
     ).withResp(unitReturnAndDiscardBytes )
 
   }
@@ -232,9 +223,12 @@ object Script extends App {
 
   }
 
-  //run in parallel, and if one or more fails, others may still succeed. The result of running an f against
-  //a K will be associated with that K, and a Vector of the results is returned. If there was one or more failures,
-  //result will be a Vector of K -> Throwable pairs. If all succeeded, the result is a Vector of K -> V
+
+  /**
+   * Run in parallel, and if one or more Future fails, others may still succeed. The result of running an f against
+   * a K will be associated with that K, and a Vector of the results is returned. If there was one or more failures,
+   * result will be a Vector of K -> Throwable pairs. If all succeeded, the result is a Vector of K -> V
+   */
   def runManyGeneric[K, V](args: Vector[K], f: K => Future[V]): Future[Either[ Vector[(K,Throwable)], Vector[(K,V)]  ]] = {
     Future.sequence(args.map(arg =>
       f(arg).map{v =>
@@ -261,6 +255,7 @@ object Script extends App {
 
   }
 
+  //Could we go back to parsing required valued directly from JsValues rather than from case classes?
   def componentInfoFromMap(map: Map[String, JsValue]): Try[ComponentInfo] = {
 
     val tuple: (Option[JsValue], Option[JsValue], Option[JsValue]) = (map.get("id"), map.get("name"), map.get("state"))
@@ -278,6 +273,7 @@ object Script extends App {
 
   }
 
+  //Could we go back to parsing required valued directly from JsValues rather than from case classes?
   def findIdsOfHttpContextMapsAndNonRunningComponents(bigJsValue: JsValue): Try[(Set[String], Vector[ComponentInfo])] = {
     val theComponents: Try[Vector[JsValue]] = {
       for {
@@ -308,12 +304,21 @@ object Script extends App {
 
   }
 
+  def findHttpContextMapIds(flow: NifiFlow): Set[String] = {
+    flow.processors.map(
+      _.component.config.properties.get("HTTP Context Map")
+    ).collect{ case Some(JsString(id)) =>
+      id
+    }.toSet
+
+  }
+
 
   //Create process groups in parallel
 /*  val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap{several =>
     runMany(several, createAndStartProcessGroup, "Succeeded in creating processGroups for these configurations", "failed to create a process group for these configurations")
   }*/
-
+  //  OR
   //Create process groups one after the other. Might be easier for ops to handle failures this way,
   //at least until our logging is really good.
   val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap { several =>
@@ -334,19 +339,26 @@ object Script extends App {
 
       processGroupEntity: ProcessGroupEntity <- createProcessGroup(inputData.nifiRootProcessorGroupId, inputData.processorGroupName, clientId)
 
-      jsValueForTemplateImport <- importTemplateIntoProcessGroupReturnsJsValue(processGroupEntity.getId, templateId)
+      nifiFlow <- importTemplateIntoProcessGroup(processGroupEntity.getId, templateId)
 
-      (httpContextMapIds, componentsWeNeedToRun) <- findIdsOfHttpContextMapsAndNonRunningComponents(jsValueForTemplateImport).map(Future.successful(_)).recover{case e => Future.failed(e)}.get
+      (httpContextMapIds, processorsWeNeedToGetRunning) = (
+        findHttpContextMapIds(nifiFlow) ,
+        nifiFlow.processors.filter(p => p.component.name != "Dummy" && p.component.state != "RUNNING")
+        )
 
-      _ <- runMany[String](
-      ids = httpContextMapIds.toVector,
-      f = updateStateOfHttpContextMap(_, "ENABLED", clientId),
+
+      _ <- runMany[UpdateInfo](
+      ids = httpContextMapIds.map(contextMapId => UpdateInfo(revision = Revision(0, Some(clientId)), component = UpdateComponentInfo(contextMapId, "ENABLED" ) )   ).toVector,
+      f = updateStateOfHttpContextMap,
       successMsg = "set all Http Context Maps to enabled state. Ids are:",
       failureMsg = "Failed to set these Http Context Maps to enabled state:")
 
-      _ <- runMany[String](
-      ids = componentsWeNeedToRun.map(_.id),
-      f = updateStateOfOneProcessor(_, "RUNNING", clientId),
+      //Don't know if we need to supply the clientId we got in findClientId, or just use the one that's already in the revision. Maybe it doesn't matter
+      processorUpdates = processorsWeNeedToGetRunning.map(p => UpdateInfo(p.revision.copy(clientId = Some(clientId)), UpdateComponentInfo(p.id, "RUNNING")) )
+
+      _ <- runMany[UpdateInfo](
+      ids = processorUpdates,
+      f = updateStateOfOneProcessor,
       successMsg = "set all desired runnable processors to running state. Ids of these processors are:",
       failureMsg = "Failed to set these processors to runnable state:")
 

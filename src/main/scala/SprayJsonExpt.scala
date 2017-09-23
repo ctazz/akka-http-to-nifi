@@ -14,11 +14,8 @@ import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
-//Note: Here we don't need to extend DefaultJsonProtocol because we import all the implicits from that Object with
-//import spray.json.DefaultJsonProtocol._
-//But sometimes extending a Protocols class that extends DefaultJsonProtocol and includes our app-specific case class implicits might be
-//a better way to organize
-object SprayJsonExpt extends App {
+
+object SprayJsonExpt extends App with Protocol {
 
   val source = """{ "some": "JSON source" }"""
 
@@ -156,7 +153,7 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
 
   //This is where we could use a cats applicative
   def componentInfoFromMap(map: Map[String, JsValue]): Try[ComponentInfo] = {
-
+    println(s"componentInfo Map is $map")
     val tuple: (Option[JsValue], Option[JsValue], Option[JsValue]) = (map.get("id"), map.get("name"), map.get("state"))
 
     tuple match {
@@ -171,7 +168,6 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
 
 
   }
-
 
 
   def findIdsOfHttpContextMapsAndNonRunningComponents(bigJsValue: JsValue): Try[(Set[String], Vector[ComponentInfo])] = {
@@ -203,6 +199,15 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
 
     println(s"Try Vector of Component Info is $tryOfComponentsThatNeedToBeEnabled")
 
+
+    jsArrayToVector(deep(bigJsValue, List( "flow",   "connections"     )).get).get.map{aConnection =>
+      println(s"connection is $aConnection")
+      val map = aConnection.asJsObject.fields
+      println("revision " + map.get("revision"))
+      println("id " +  map.get("id"))
+
+    }
+
     Misc.tryMap2(tryOfHttpContextMapIds, tryOfComponentsThatNeedToBeEnabled)( (_,_) )
 
 
@@ -210,9 +215,69 @@ Hello 127.0.0.1:9093,127.0.0.1:9094 Hello. 9010
 
   }
 
-  findIdsOfHttpContextMapsAndNonRunningComponents(theBigJsValue)
+  //!!!!Looks like revision is under processors! And if version != 0, there will be a clientId too.
+  //revision { version: xx, clientId: maybeMaybeNot }
+  //findIdsOfHttpContextMapsAndNonRunningComponents(theBigJsValue)
 
 
+  await(Unmarshal(text).to[JsValue])
+  val fromFlowSlashProcessGroupsSlashIdGet: JsValue =
+    await(Unmarshal(
+      Misc.readText("notes/jsonDumps/latest.json")
+    ).to[JsValue])
+
+
+  findIdsOfHttpContextMapsAndNonRunningComponents(
+    deep(fromFlowSlashProcessGroupsSlashIdGet, List("processGroupFlow")).get
+  )
+
+
+
+
+  //processGroupFlow / flow / connections should have what we want.
+
+
+  import NifiApiModel._
+  val flowJsVal: JsValue = deep(fromFlowSlashProcessGroupsSlashIdGet, List("processGroupFlow", "flow")).get
+  //println(s"flowJsVal is\n$flowJsVal")
+  val flow = flowJsVal.convertTo[NifiFlow]
+
+  println(" how does this print out?" +
+  Revision(1, Some("helloClientId")).toJson.compactPrint
+  )
+  println(" how does this print out?" +
+    Revision(0, None).toJson.compactPrint
+  )
+
+  println("how does this print out" +
+  UpdateInfo(Revision(1, Some("helloClientId")), UpdateComponentInfo("anId", "RUNNING")).toJson.compactPrint
+  )
+
+  //println(s"flow is $flow")
+
+  def findConnectionInfos(flow: NifiFlow): Vector[(String, Revision)] = {
+    flow.connections.map(c => (c.id, c.revision))
+  }
+
+  def findComponentInfos(flow: NifiFlow)(filter: Processor => Boolean): Vector[UpdateInfo] = {
+    flow.processors.filter(filter).map { p: Processor =>
+      UpdateInfo(p.revision, UpdateComponentInfo(p.id, p.component.state))
+    }
+  }
+
+  def findHttpContextMapIds(flow: NifiFlow): Set[String] = {
+    flow.processors.map(
+      _.component.config.properties.get("HTTP Context Map")
+    ).collect{ case Some(JsString(id)) =>
+      id
+    }.toSet
+
+  }
+
+
+  println("xxxcomponentInfos: " + findComponentInfos(flow)(p => p.component.name != "Dummy" && p.component.state == "RUNNING").map(_.toJson.compactPrint))
+  println("xxxconnectionInfos: " + findConnectionInfos(flow))
+  println("xxxHttpContextMapIds" +   findHttpContextMapIds(flow))
 
 
 

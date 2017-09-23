@@ -39,7 +39,7 @@ BY THE WAY, maybe some or all of the info I need is in the return from process-g
 View the process group:
 req:
 This is: /flow/process-groups/{id} Gets a process group
-curl 'http://loc`alhost:8081/nifi-api/flow/process-groups/8b4755fe-015e-1000-bd0f-2847b3200d63' -H 'Accept-Encoding: gzip, deflate, br' -H 'Accept-Language: en-US,en;q=0.8' -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36' -H 'Accept: application/json, text/javascript, */*; q=0.01' -H 'Referer: http://localhost:8081/nifi/?processGroupId=root&componentIds=8b4755fe-015e-1000-bd0f-2847b3200d63' -H 'X-Requested-With: XMLHttpRequest' -H 'Connection: keep-alive' --compressed
+curl 'http://localhost:8081/nifi-api/flow/process-groups/8b4755fe-015e-1000-bd0f-2847b3200d63' -H 'Accept-Encoding: gzip, deflate, br' -H 'Accept-Language: en-US,en;q=0.8' -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36' -H 'Accept: application/json, text/javascript, */*; q=0.01' -H 'Referer: http://localhost:8081/nifi/?processGroupId=root&componentIds=8b4755fe-015e-1000-bd0f-2847b3200d63' -H 'X-Requested-With: XMLHttpRequest' -H 'Connection: keep-alive' --compressed
 
 IT TURNS OUT THAT THE StandardHTTPContextMap we want to enable has this id:
 b1fe614b-cfc6-3db4-64c7-b9f1290d87a9
