@@ -41,12 +41,12 @@ object JsonHelp {
 
   def asMap(jsValue: JsValue): Try[Map[String, JsValue]] = jsValue match {
     case JsObject(fields) => Success(fields)
-    case other => Failure(new JsonReadError("Not a JsObject"))
+    case other => Failure(new JsonReadError(s"Not a JsObject: $other"))
   }
 
   def asString(jsValue: JsValue): Try[String] = jsValue match {
     case JsString(str) => Success(str)
-    case other => Failure(new JsonReadError("Not a JsString"))
+    case other => Failure(new JsonReadError(s"Not a JsString: $other"))
   }
 
 

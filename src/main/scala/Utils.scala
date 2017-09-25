@@ -3,6 +3,7 @@ import akka.event.LoggingAdapter
 import scala.collection.generic.CanBuildFrom
 import scala.collection.mutable.Builder
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.Try
 
 object Utils {
 
@@ -63,6 +64,14 @@ object Utils {
       }
 
     )).map{vec: Vector[Either[(K, Throwable), (K,V)]] => Either.sequence(vec)   }
+  }
+
+  implicit class TryOps[A](val theTry: Try[A]) extends AnyVal {
+
+    def toFuture: Future[A] = theTry.map(Future.successful(_)).recover {
+      case throwable => Future.failed(throwable)
+    }.get
+
   }
 
 

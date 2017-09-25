@@ -22,7 +22,7 @@ object NifiApiModel {
 
 }
 
-case class InputData(templateFileName: String, templateReplacementValues: Map[String, String], nifiRootProcessorGroupId: String, processorGroupName: String)
+case class InputData(templateFileName: String, templateReplacementValues: Map[String, String], processorGroupName: String)
 
 
 case class UpdateComponentInfo(id: String, state: String)
@@ -43,5 +43,5 @@ trait Protocol extends DefaultJsonProtocol {
 
 
   //This data is not used to interact with Nifi. Instead it's used to tell our service what changes our client wants to effect in Nifi.
-  implicit val inputDataFormat = jsonFormat4(InputData.apply)
+  implicit val inputDataFormat = jsonFormat3(InputData.apply)
 }

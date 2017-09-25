@@ -133,6 +133,24 @@ trait NifiInteractions extends Protocol {
 
   }
 
+  def findRootProcessGroupId: Future[String] = {
+    HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/process-groups/root"))).withResp(Unmarshal(_).to[JsValue]).flatMap{jsValue =>
+
+      (for {
+        processGroupFlowJsValue: JsValue <- deep(jsValue, List("processGroupFlow"))
+        theMap: Map[String, JsValue] <-  asMap(processGroupFlowJsValue)
+        rootProcessGroupId: String <- theMap.get("id").map(_ match {
+          case JsString(id) => scala.util.Success(id)
+          case other => scala.util.Failure(new JsonReadError(s"expected processGroupFlow/id to be JsString. Was ${other.getClass} with value $other"))
+        }
+        ).getOrElse{
+          scala.util.Failure(new JsonReadError(s"expected key processGroupFlow/id is missing"))
+        }
+      } yield rootProcessGroupId).toFuture
+    }
+
+  }
+
   def findClientId: Future[String] = {
     HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
   }
@@ -246,14 +264,16 @@ trait NifiInteractions extends Protocol {
   //and stream the replaced lines as we upload.  But don't know how to do that now.
   //This article doesn't quite do that, but at least it shows the use of framing: https://stackoverflow.com/questions/40224457/reading-a-csv-files-using-akka-streams)
   def createAndStartProcessGroup(inputData: InputData): Future[Unit] = {
-    val replacedText = replace(Misc.readText(s"$templateDir/${inputData.templateFileName}"), inputData.templateReplacementValues)
+    val replacedText = replace(Misc.readText(s"$templateDir/${inputData.templateFileName + ".xml"}"), inputData.templateReplacementValues)
     for {
 
-      templateId <- uploadTemplate(inputData.nifiRootProcessorGroupId, replacedText, inputData.templateFileName)
+      nifiRootProcessorGroupId <- findRootProcessGroupId
+
+      templateId <- uploadTemplate(nifiRootProcessorGroupId, replacedText, inputData.templateFileName)
 
       clientId <-  findClientId
 
-      processGroupEntity: ProcessGroupEntity <- createProcessGroup(inputData.nifiRootProcessorGroupId, inputData.processorGroupName, clientId)
+      processGroupEntity: ProcessGroupEntity <- createProcessGroup(nifiRootProcessorGroupId, inputData.processorGroupName, clientId)
 
       nifiFlow <- importTemplateIntoProcessGroup(processGroupEntity.getId, templateId)
 

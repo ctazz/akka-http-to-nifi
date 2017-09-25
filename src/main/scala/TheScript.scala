@@ -38,9 +38,14 @@ object TheScript extends NifiInteractions with App {
     runSequentially(several.toList, createAndStartProcessGroup)
   }
 
+  //TODO Perhaps have different messages based on what the Exception is
+  val message: Future[String] = fut.map{_ => "ok"}.recover{
+    case ex => s"Failure while trying to set up Nifi processor group(s). Exception was $ex"
+  }
+
 
   logger.info("result was\n" +
-    await(fut))
+    await(message))
 
 
   def await[T](future: Future[T], dur: FiniteDuration = 2000.millis): T =  Await.result(future, dur)
