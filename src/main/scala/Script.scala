@@ -33,7 +33,8 @@ import scala.collection.JavaConverters._
 
 import akka.http.scaladsl.marshallers.xml.ScalaXmlSupport._
 import spray.json.DefaultJsonProtocol._
-import CollectionHelp._
+import Utils._
+import HttpUtils._
 import spray.json._
 
 import scala.util.{Failure, Try}
@@ -47,7 +48,7 @@ object Script extends App with Protocol {
   implicit val system = ActorSystem()
   implicit val executor = system.dispatcher
   implicit val materializer = ActorMaterializer()
-  val logger: LoggingAdapter = Logging(system, getClass)
+  implicit val logger: LoggingAdapter = Logging(system, getClass)
 
   lazy val config = ConfigFactory.load()
   val apiPath = config.getString("services.nifi-api.path")
@@ -104,44 +105,6 @@ object Script extends App with Protocol {
 
   }
 
-  object NifiResponseHelp {
-
-    def handleBadStatus[T](resp: HttpResponse): Future[T] = {
-      Unmarshal(resp.entity).to[String].flatMap { bodyAsString =>
-        Future.failed(new RuntimeException(s"failed with status ${resp.status}. Response body was $bodyAsString"))
-      }
-    }
-
-    def getIt[T](httpRequest: HttpRequest, acceptableStatus: Set[Int] = Set(200, 201))(f: HttpEntity => Future[T]): Future[T] = {
-      Http().singleRequest(httpRequest).flatMap { resp: HttpResponse =>
-        resp.status.intValue match {
-          case status if acceptableStatus.contains(status) => f(resp.entity)
-          case other => handleBadStatus[T](resp)
-        }
-
-      }
-    }
-  }
-
-  implicit class HttpRequestMonkeyPatch(val req: HttpRequest) extends AnyVal {
-    import NifiResponseHelp._
-    //Note: Failure to discard the HttpEntity on an unit return will cause Akka http to do back-pressure, and we don't want that.
-    //Currently we solve the problem by expecting callers of withResp to use unitReturnAndDiscardBytes
-    //when they want to return unit.
-    // We could instead have added a (implicit CT: ClassTag[T]) to this signature, and used
-    //val discardEntity = returnClass.getSimpleName == "void"
-    //to tell our getIt function to discard the entity automatically.
-    def withResp[T](f: HttpEntity => Future[T], acceptableStatus: Set[Int] = Set(200, 201)): Future[T] = {
-      getIt(req, acceptableStatus)(f)
-    }
-  }
-
-
-  /**
-   * From http://doc.akka.io/docs/akka-http/current/scala/http/implications-of-streaming-http-entity.html
-   * Consuming (or discarding) the Entity of a request is mandatory! If accidentally left neither consumed or discarded Akka HTTP will assume the incoming data should remain back-pressured, and will stall the incoming data via TCP back-pressure mechanisms. A client should consume the Entity regardless of the status of the HttpResponse.
-   */
-  val unitReturnAndDiscardBytes: HttpEntity => Future[Unit] = {respEntity => respEntity.dataBytes.runWith(Sink.ignore) ;  Future.successful(()) }
 
   def nifiUri(path: Uri.Path): Uri = {
     Uri(scheme = "http", authority = Uri.Authority(Uri.Host(config.getString("services.nifi-api.host")), port = config.getInt("services.nifi-api.port")), path = path)
@@ -210,37 +173,7 @@ object Script extends App with Protocol {
 
   }
 
-  //short circuit upon the first failure
-  def runSequentially[K,V](args: List[K], f: K => Future[V], accum: List[V] = List()  ): Future[List[V]] = {
 
-    args match {
-      case Nil => Future.successful(accum.reverse)
-      case k :: ks =>
-        f(k).flatMap{v =>
-          runSequentially(ks, f, v :: accum)
-        }
-    }
-
-  }
-
-
-  /**
-   * Run in parallel, and if one or more Future fails, others may still succeed. The result of running an f against
-   * a K will be associated with that K, and a Vector of the results is returned. If there was one or more failures,
-   * result will be a Vector of K -> Throwable pairs. If all succeeded, the result is a Vector of K -> V
-   */
-  def runManyGeneric[K, V](args: Vector[K], f: K => Future[V]): Future[Either[ Vector[(K,Throwable)], Vector[(K,V)]  ]] = {
-    Future.sequence(args.map(arg =>
-      f(arg).map{v =>
-        Right(arg ->  v)
-      }.recover{
-        case ex =>
-          logger.info(s"failure. is is ${arg} and ex is $ex")
-          Left(arg -> ex)
-      }
-
-    )).map{vec: Vector[Either[(K, Throwable), (K,V)]] => Either.sequence(vec)   }
-  }
 
   def runMany[K](ids: Vector[K], f: K => Future[Unit], successMsg: String, failureMsg: String): Future[Unit] = {
       runManyGeneric[K, Unit](ids, f).flatMap(_ match {

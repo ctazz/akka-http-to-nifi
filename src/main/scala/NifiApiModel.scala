@@ -25,17 +25,8 @@ object NifiApiModel {
 case class InputData(templateFileName: String, templateReplacementValues: Map[String, String], nifiRootProcessorGroupId: String, processorGroupName: String)
 
 
-//TODO The revision we need to send has clientId and versionId in the opposite directtion of the revision we receive.
-//BUT MAYTBE THE ORDER DOESN't matter. I would hope not.
-//MAYBE I NEED TO MAKE THE VERSION optional!
-//Or maybe we just haven't received anything with revisions.
-//s"""{"revision":{"clientId":"$clientId","version":0},"component":{"id":"$componentId","state":"$desiredState"}}"""
 case class UpdateComponentInfo(id: String, state: String)
 case class UpdateInfo(revision: NifiApiModel.Revision, component: UpdateComponentInfo)
-//And we need an update component. Maybe it's just: {"id":"$componentId","state":"$desiredState"}
-// And for processGroup creation (which is not an update) we've seen it be this: {"name":"$name","position":{"x":181,"y":140.5}
-//But maybe we just leave processGroup creation as a String substitution.
-//case class MaybeThisUpdate(revision: Revision)
 
 trait Protocol extends DefaultJsonProtocol {
   import NifiApiModel._
