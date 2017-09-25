@@ -14,7 +14,7 @@ import JsonHelp._
 
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.client.RequestBuilding._
-import com.typesafe.config.ConfigFactory
+import com.typesafe.config.Config
 import org.apache.nifi.web.api.dto.flow.FlowDTO
 import org.apache.nifi.web.api.dto.status.ProcessorStatusDTO
 import org.apache.nifi.web.api.dto.{ProcessorDTO, ProcessorConfigDTO}
@@ -43,24 +43,18 @@ import scala.xml.NodeSeq
 //TODO we've arbitrarily specified component positions in some places.
 //With importTemplateIntoProcessGroupJson we had to, otherwise we'd get this error:400 Bad Request. Response body was The origin position (x, y) must be specified.
 //So what do we do about component positions?
-object Script extends App with Protocol {
+trait NifiInteractions extends Protocol {
 
-  implicit val system = ActorSystem()
-  implicit val executor = system.dispatcher
-  implicit val materializer = ActorMaterializer()
-  implicit val logger: LoggingAdapter = Logging(system, getClass)
+  implicit val system: ActorSystem
+  implicit def executor: ExecutionContextExecutor
+  implicit val materializer: Materializer
+  implicit val logger: LoggingAdapter
 
-  lazy val config = ConfigFactory.load()
+  def config: Config
+
   val apiPath = config.getString("services.nifi-api.path")
   val templateDir = config.getString("template.directory")
   val replace: (String, Map[String, String]) => String = Misc.replaceText("\\{\\{", "}}") _
-
-  implicit val inputDataFormat = jsonFormat4(InputData.apply)
-
-
-  //The value for my local nifi instance si 5cb229a2-015e-1000-af7e-47911f0b10d6
-  val inputFilename = args(0)
-
 
 
   //According to documentation I read somewhere, if we need to increase the size of file uploads,
@@ -189,6 +183,7 @@ object Script extends App with Protocol {
   }
 
   //Could we go back to parsing required valued directly from JsValues rather than from case classes?
+  //If not, get rid of this.
   def componentInfoFromMap(map: Map[String, JsValue]): Try[ComponentInfo] = {
 
     val tuple: (Option[JsValue], Option[JsValue], Option[JsValue]) = (map.get("id"), map.get("name"), map.get("state"))
@@ -207,6 +202,7 @@ object Script extends App with Protocol {
   }
 
   //Could we go back to parsing required valued directly from JsValues rather than from case classes?
+  //If not, get rid of this.
   def findIdsOfHttpContextMapsAndNonRunningComponents(bigJsValue: JsValue): Try[(Set[String], Vector[ComponentInfo])] = {
     val theComponents: Try[Vector[JsValue]] = {
       for {
@@ -246,19 +242,6 @@ object Script extends App with Protocol {
 
   }
 
-
-  //Create process groups in parallel
-/*  val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap{several =>
-    runMany(several, createAndStartProcessGroup, "Succeeded in creating processGroups for these configurations", "failed to create a process group for these configurations")
-  }*/
-  //  OR
-  //Create process groups one after the other. Might be easier for ops to handle failures this way,
-  //at least until our logging is really good.
-  val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap { several =>
-    runSequentially(several.toList, createAndStartProcessGroup)
-  }
-
-
   //TODO: I'd like to stream data from our template file, use Framing to cut the file into lines, do text replace on the streaming lines,
   //and stream the replaced lines as we upload.  But don't know how to do that now.
   //This article doesn't quite do that, but at least it shows the use of framing: https://stackoverflow.com/questions/40224457/reading-a-csv-files-using-akka-streams)
@@ -297,12 +280,6 @@ object Script extends App with Protocol {
 
     } yield ()
   }
-
-  logger.info("result was\n" +
-    await(fut))
-  
-  
-  def await[T](future: Future[T], dur: FiniteDuration = 2000.millis): T =  Await.result(future, dur)
 
 
 

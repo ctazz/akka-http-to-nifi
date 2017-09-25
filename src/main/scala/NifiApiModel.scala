@@ -40,4 +40,8 @@ trait Protocol extends DefaultJsonProtocol {
 
   implicit val updateComponentInfoFmt = jsonFormat2(UpdateComponentInfo.apply)
   implicit val updateInfoFmt = jsonFormat2(UpdateInfo.apply)
+
+
+  //This data is not used to interact with Nifi. Instead it's used to tell our service what changes our client wants to effect in Nifi.
+  implicit val inputDataFormat = jsonFormat4(InputData.apply)
 }
