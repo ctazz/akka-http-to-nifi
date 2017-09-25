@@ -3,7 +3,7 @@ import spray.json.{JsValue, DefaultJsonProtocol}
 //An alternative would have been to use the Nifi JaxB representations, and indeed, we have in places.
 // But, at least in the current version, those representations don't always pull in everything we need.
 //For example, processors/component/config/properties Map is empty when we read it, and we need that Map.
-//Our models are not full representations of the NIF JSON. Instead we represent only what we need.
+//Our models are not full representations of the NIFI JSON. Instead we represent only what we need.
 object NifiApiModel {
 
   case class Revision(version: Int, clientId: Option[String])

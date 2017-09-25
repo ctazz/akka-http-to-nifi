@@ -43,14 +43,9 @@ import scala.xml.NodeSeq
 //TODO we've arbitrarily specified component positions in some places.
 //With importTemplateIntoProcessGroupJson we had to, otherwise we'd get this error:400 Bad Request. Response body was The origin position (x, y) must be specified.
 //So what do we do about component positions?
-trait NifiInteractions extends Protocol {
+class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  system: ActorSystem, executor: ExecutionContextExecutor, materializer: Materializer) extends Protocol {
 
-  implicit val system: ActorSystem
-  implicit def executor: ExecutionContextExecutor
-  implicit val materializer: Materializer
-  implicit val logger: LoggingAdapter
-
-  def config: Config
+  implicit val logger: LoggingAdapter = theLogger
 
   val apiPath = config.getString("services.nifi-api.path")
   val templateDir = config.getString("template.directory")

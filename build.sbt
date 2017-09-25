@@ -26,8 +26,11 @@ libraryDependencies ++= {
   )
 }
 
-Keys.mainClass in (Compile) := Some("TheScript")
-//To run original example code change the above line to: Keys.mainClass in (Compile) := Some("AkkaHttpMicroservice")
+//Do this if you want to use sbt to run our Akka-http service
+Keys.mainClass in (Compile) := Some("NifiServiceImpl")
+////Do this if you want to invoke sbt through a script, giving it a json file of instructions, like so:
+//sbt " run sampleInputs/sample1.json"
+//Keys.mainClass in (Compile) := Some("TheScript")
 
 //These depend on having addSbtPlugin("io.spray" % "sbt-revolver" % "0.8.0") in plugins.sbt
 //I like the command ~re-start, so I keep it.

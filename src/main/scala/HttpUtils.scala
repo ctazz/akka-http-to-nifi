@@ -40,7 +40,7 @@ object HttpUtils {
 
   }
 
-  implicit class MonkeyMonkey(val req: HttpRequest) extends AnyVal {
+  implicit class HttpRequestOps(val req: HttpRequest) extends AnyVal {
 
     def withResp[T](f: HttpEntity => Future[T], acceptableStatus: Set[Int] = Set(200, 201))(implicit helper: HttpHelper): Future[T] = {
       helper.getIt(req, acceptableStatus)(f)
@@ -52,6 +52,7 @@ object HttpUtils {
   /**
    * From http://doc.akka.io/docs/akka-http/current/scala/http/implications-of-streaming-http-entity.html
    * Consuming (or discarding) the Entity of a request is mandatory! If accidentally left neither consumed or discarded Akka HTTP will assume the incoming data should remain back-pressured, and will stall the incoming data via TCP back-pressure mechanisms. A client should consume the Entity regardless of the status of the HttpResponse.
+   * And note: the same goes for responses, and that's why we have this function.
    */
   def unitReturnAndDiscardBytes(respEntity: HttpEntity)(implicit materializer: akka.stream.Materializer):Future[Unit] = {
     respEntity.dataBytes.runWith(Sink.ignore) ;  Future.successful(())

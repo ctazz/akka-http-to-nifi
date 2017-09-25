@@ -14,28 +14,29 @@ import scala.concurrent.duration._
 
 import Utils._
 
-object TheScript extends NifiInteractions with App {
+object TheScript extends Protocol with App {
 
-  override implicit val system = ActorSystem()
-  override implicit val executor = system.dispatcher
-  override implicit val materializer = ActorMaterializer()
-  override val logger = Logging(system, getClass)
+  implicit val system = ActorSystem()
+  implicit val executor = system.dispatcher
+  implicit val materializer = ActorMaterializer()
+  val logger = Logging(system, getClass)
 
-  override lazy val config = ConfigFactory.load()
+  lazy val config = ConfigFactory.load()
+
+  lazy val nifiInteractions = new NifiInteractions(config, logger)
 
   //The value for my local nifi instance si 5cb229a2-015e-1000-af7e-47911f0b10d6
   val inputFilename = args(0)
 
   //Create process groups in parallel
-  /*  val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap{several =>
-      runMany(several, createAndStartProcessGroup, "Succeeded in creating processGroups for these configurations", "failed to create a process group for these configurations")
-    }*/
+/*  val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap { several =>
+    nifiInteractions.runMany(several, nifiInteractions.createAndStartProcessGroup, "Succeeded in creating processGroups for these configurations", "failed to create a process group for these configurations")
+  }*/
   //  OR
   //Create process groups one after the other. Might be easier for ops to handle failures this way,
   //at least until our logging is really good.
-
   val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap { several =>
-    runSequentially(several.toList, createAndStartProcessGroup)
+    runSequentially(several.toList, nifiInteractions.createAndStartProcessGroup)
   }
 
   //TODO Perhaps have different messages based on what the Exception is
