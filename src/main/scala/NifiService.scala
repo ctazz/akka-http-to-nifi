@@ -31,16 +31,19 @@ trait NifiService extends Protocol {
   val routes: Route = {
     logRequestResult("Nifi service") {
 
-        //Not sure this is all that RESTful
-        path("processor-groups") {
-          (post & entity(as[Vector[InputData]])) {inputDataVec =>
+      //Not sure this is all that RESTful
+      path("processor-groups") {
+        (post & entity(as[Vector[InputData]])) {inputDataVec =>
             complete {
               runSequentially(inputDataVec.toList, nifiInteractions.createAndStartProcessGroup).flatMap(_ => Future.successful(Created -> "success")).recover {
+
+                case ABadRequest(msg) => BadRequest -> msg
+
                 case ex => InternalServerError -> s"Error: ${ex.getMessage}"
               }
             }
           }
-        }
+      }
 
     }
 

@@ -76,10 +76,10 @@ class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  
     def createEntityFromText(text: String, fileName: String): Future[RequestEntity] = {
       val formData =
         Multipart.FormData(
-            Multipart.FormData.BodyPart.Strict(
-              "template",
-              HttpEntity(ContentTypes.`text/xml(UTF-8)`, text),
-              Map("filename" -> fileName))
+          Multipart.FormData.BodyPart.Strict(
+            "template",
+            HttpEntity(ContentTypes.`text/xml(UTF-8)`, text),
+            Map("filename" -> fileName))
         )
       Marshal(formData).to[RequestEntity]
     }
@@ -187,7 +187,7 @@ class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  
 
 
   def runMany[K](ids: Vector[K], f: K => Future[Unit], successMsg: String, failureMsg: String): Future[Unit] = {
-      runManyGeneric[K, Unit](ids, f).flatMap(_ match {
+    runManyGeneric[K, Unit](ids, f).flatMap(_ match {
       case Right(vec) =>
         logger.info(s"$successMsg ${vec.map(_._1).mkString(",")}")
         Future.successful(())
@@ -259,12 +259,29 @@ class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  
 
   }
 
+  def replaceText(inputData: InputData): Future[String] = {
+
+    val stringPath = s"$templateDir/${inputData.templateFileName}.xml"
+
+    (for {
+      path <-  if(new File(stringPath).exists) scala.util.Success(stringPath) else Failure(new ABadRequest(s"No corresponding template for ${inputData.templateFileName}"))
+      replaced <- Try( replace(Misc.readText(path), inputData.templateReplacementValues)  )
+      _ <- if( replaced.indexOf("}}") >= 0 )
+        Failure(new ABadRequest(s"templateReplacementValues were not complete. After applying them, some replace tokens still existed in the ${inputData.templateFileName} template file."))
+      else scala.util.Success(() )
+    } yield replaced).toFuture
+
+
+  }
+
   //TODO: I'd like to stream data from our template file, use Framing to cut the file into lines, do text replace on the streaming lines,
   //and stream the replaced lines as we upload.  But don't know how to do that now.
   //This article doesn't quite do that, but at least it shows the use of framing: https://stackoverflow.com/questions/40224457/reading-a-csv-files-using-akka-streams)
   def createAndStartProcessGroup(inputData: InputData): Future[Unit] = {
-    val replacedText = replace(Misc.readText(s"$templateDir/${inputData.templateFileName + ".xml"}"), inputData.templateReplacementValues)
+
     for {
+
+      replacedText <- replaceText(inputData)
 
       nifiRootProcessorGroupId <- findRootProcessGroupId
 

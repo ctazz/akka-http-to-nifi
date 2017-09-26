@@ -28,7 +28,7 @@ libraryDependencies ++= {
 
 //Do this if you want to use sbt to run our Akka-http service
 Keys.mainClass in (Compile) := Some("NifiServiceImpl")
-////Do this if you want to invoke sbt through a script, giving it a json file of instructions, like so:
+//Do this if you want to invoke sbt through a script, giving it a json file of instructions, like so:
 //sbt " run sampleInputs/sample1.json"
 //Keys.mainClass in (Compile) := Some("TheScript")
 

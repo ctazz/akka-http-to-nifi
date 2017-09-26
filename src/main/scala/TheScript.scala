@@ -29,9 +29,9 @@ object TheScript extends Protocol with App {
   val inputFilename = args(0)
 
   //Create process groups in parallel
-/*  val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap { several =>
-    nifiInteractions.runMany(several, nifiInteractions.createAndStartProcessGroup, "Succeeded in creating processGroups for these configurations", "failed to create a process group for these configurations")
-  }*/
+  /*  val fut = Unmarshal(Misc.readText(inputFilename)).to[Vector[InputData]].flatMap { several =>
+      nifiInteractions.runMany(several, nifiInteractions.createAndStartProcessGroup, "Succeeded in creating processGroups for these configurations", "failed to create a process group for these configurations")
+    }*/
   //  OR
   //Create process groups one after the other. Might be easier for ops to handle failures this way,
   //at least until our logging is really good.
@@ -41,6 +41,9 @@ object TheScript extends Protocol with App {
 
   //TODO Perhaps have different messages based on what the Exception is
   val message: Future[String] = fut.map{_ => "ok"}.recover{
+
+    case ABadRequest(msg) => s"Failure due to bad request: $msg"
+
     case ex => s"Failure while trying to set up Nifi processor group(s). Exception was $ex"
   }
 
@@ -49,7 +52,7 @@ object TheScript extends Protocol with App {
     await(message))
 
 
-  def await[T](future: Future[T], dur: FiniteDuration = 2000.millis): T =  Await.result(future, dur)
+  def await[T](future: Future[T], dur: FiniteDuration = 10000.millis): T =  Await.result(future, dur)
 
 
 
