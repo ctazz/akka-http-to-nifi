@@ -45,6 +45,8 @@ import scala.xml.NodeSeq
 //So what do we do about component positions?
 class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  system: ActorSystem, executor: ExecutionContextExecutor, materializer: Materializer) extends Protocol {
 
+  val DoNotRunProcessorsWithThisName = "Dummy"
+
   implicit val logger: LoggingAdapter = theLogger
 
   val apiPath = config.getString("services.nifi-api.path")
@@ -150,6 +152,7 @@ class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  
     HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/client-id"))).withResp(Unmarshal(_).to[String])
   }
 
+  //Nifi gives us an xml response here whether we ask for it or not.
   def uploadTemplate(parentProcessGroupId: String, text: String, filename: String): Future[String] = {
     for {
       templateUploadReq <- TemplateUploadViaMultipart.createRequest(
@@ -159,6 +162,7 @@ class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  
     } yield (xml \ "template" \ "id").headOption.map{_.text.trim}.get
   }
 
+  //As of this writing this is the only place we use NIFI's JAXB representation.
   def createProcessGroup(parentProcessGroupId: String, processGroupName: String, clientId: String): Future[ProcessGroupEntity] = {
     HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${parentProcessGroupId}/process-groups")),
       entity = HttpEntity.apply(ContentTypes.`application/json`, createProcessGroupJson(processGroupName, clientId))
@@ -239,7 +243,7 @@ class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  
 
     val tryOfComponentsThatNeedToBeEnabled: Try[Vector[ComponentInfo]] = theComponents.flatMap{comps: Vector[JsValue] =>
       Misc.sequence(comps.map(comp => asMap(comp).flatMap(componentInfoFromMap)   ))
-    }.map(_.filter(ci => ci.name != "Dummy" && ci.state != "RUNNING"))
+    }.map(_.filter(ci => ci.name != DoNotRunProcessorsWithThisName && ci.state != "RUNNING"))
 
 
     Misc.tryMap2(tryOfHttpContextMapIds, tryOfComponentsThatNeedToBeEnabled)( (_,_) )

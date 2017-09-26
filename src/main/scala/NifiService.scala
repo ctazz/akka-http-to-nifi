@@ -35,7 +35,7 @@ trait NifiService extends Protocol {
         path("processor-groups") {
           (post & entity(as[Vector[InputData]])) {inputDataVec =>
             complete {
-              runSequentially(inputDataVec.toList, nifiInteractions.createAndStartProcessGroup).flatMap(_ => Future.successful(OK -> "success")).recover {
+              runSequentially(inputDataVec.toList, nifiInteractions.createAndStartProcessGroup).flatMap(_ => Future.successful(Created -> "success")).recover {
                 case ex => InternalServerError -> s"Error: ${ex.getMessage}"
               }
             }
