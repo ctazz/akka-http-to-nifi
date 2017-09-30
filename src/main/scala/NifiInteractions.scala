@@ -110,6 +110,8 @@ class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  
   //400 Bad Request. Response body was The origin position (x, y) must be specified.
   def importTemplateIntoProcessGroupJson(templateId: String): String = s"""{"templateId":"${templateId}","originX":385,"originY":170}"""
 
+  def jsonToNifiFlow(jsValue: JsValue, levelsToDive: List[String]): Try[NifiFlow] = deep(jsValue, levelsToDive).map(_.convertTo[NifiApiModel.NifiFlow])
+
   /**
    *
    * example:
@@ -117,19 +119,27 @@ class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  
    * -H 'Content-Type: application/json' \
    * --data '{"templateId":"${templateId}","originX":385,"originY":170}'
    */
-  def importTemplateIntoProcessGroup(processGroupId: String, templateId: String): Future[NifiApiModel.NifiFlow] = {
+  def importTemplateIntoProcessGroup(processGroupId: String, templateId: String): Future[NifiFlow] = {
     HttpRequest(HttpMethods.POST, uri = nifiUri(Uri.Path(s"$apiPath/process-groups/${processGroupId}/template-instance")),
       entity = HttpEntity.apply(ContentTypes.`application/json`, importTemplateIntoProcessGroupJson(templateId))
-    ).withResp(respEntity => Unmarshal(respEntity).to[JsValue].flatMap { js =>
-      deep(js, List("flow")).map(innerJs => Future.successful(innerJs.convertTo[NifiApiModel.NifiFlow])).recover {
-        case ex => Future.failed(ex)
-      }.get
-    }
+    ).withResp(respEntity => Unmarshal(respEntity).to[JsValue].
+      flatMap{ jsonToNifiFlow(_,  List("flow")).toFuture
+      }
 
     )
 
   }
 
+  //The JSON returned from an $apiPath/flow/process-groups/$processGroupId GET is the same as that returned when we import a template into
+  //a processorGroup, except that the GET has one more layer, which for this function we don't care about.
+  def processGroupsSummary(processGroupId: String): Future[NifiFlow] = {
+    HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/process-groups/$processGroupId"))).withResp(Unmarshal(_).to[JsValue]).
+      flatMap{jsonToNifiFlow(_,  List("processGroupFlow", "flow")).toFuture
+    }
+  }
+
+  //This is also an apiPath/flow/process-groups/xxx GET, but it's of the root process group, using the special magic name "root",
+  // and all we want here it to find the id of this root process group.
   def findRootProcessGroupId: Future[String] = {
     HttpRequest(HttpMethods.GET, uri = nifiUri(Uri.Path(s"$apiPath/flow/process-groups/root"))).withResp(Unmarshal(_).to[JsValue]).flatMap{jsValue =>
 
@@ -271,6 +281,18 @@ class NifiInteractions(val config: Config, theLogger: LoggingAdapter)(implicit  
       else scala.util.Success(() )
     } yield replaced).toFuture
 
+
+  }
+
+  //This is the beginning of work on how to tear down a processor group.
+  def readInfoFromProcessGroup(processGroupId: String): Future[(Set[String], Vector[Processor], Vector[Connection])] = {
+    processGroupsSummary(processGroupId).map{nifiFlowFromGET =>
+      (
+        findHttpContextMapIds(nifiFlowFromGET) ,
+        nifiFlowFromGET.processors.filter(_.component.state == "RUNNING"),
+        nifiFlowFromGET.connections
+        )
+    }
 
   }
 
